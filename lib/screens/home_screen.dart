@@ -1,9 +1,12 @@
+import 'package:firebase_auth/firebase_auth.dart';
 import 'package:flutter/material.dart';
 import '../theme/app_styles.dart';
 import '../services/auth_service.dart';
 import '../widgets/dashboard_card.dart';
 import '../widgets/stat_card.dart';
 import 'analytics_screen.dart';
+import '../add_cat_page.dart';       // Import your AddCatPage file
+import '../cat_list_widget.dart';
 
 /// Placeholder alert model.
 /// TODO: Replace with your real model / API response once the backend is ready.
@@ -97,6 +100,9 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
 
   @override
   Widget build(BuildContext context) {
+    // Get the current user's unique ID from Firebase Auth.
+    final String currentUserId = FirebaseAuth.instance.currentUser?.uid ?? '';
+
     return Scaffold(
       backgroundColor: AppColors.background,
       body: SafeArea(
@@ -107,6 +113,15 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
             children: [
               _buildHeader(),
               if (!_isEmailVerified) _buildEmailVerificationNotice(),
+              const Padding(
+                padding: EdgeInsets.fromLTRB(20, 20, 20, 0),
+                child: Text(
+                  'My Cats',
+                  style: TextStyle(fontSize: 20, fontWeight: FontWeight.bold),
+                ),
+              ),
+              // Show the current user's cats from Firestore.
+              CatListWidget(userId: currentUserId),
               Padding(
                 padding: const EdgeInsets.fromLTRB(20, 20, 20, 32),
                 child: Column(
@@ -131,6 +146,19 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
             ],
           ),
         ),
+      ),
+      floatingActionButton: FloatingActionButton(
+        onPressed: () {
+          Navigator.push(
+            context,
+            MaterialPageRoute(
+              builder: (context) => AddCatPage(userId: currentUserId),
+            ),
+          );
+        },
+        backgroundColor: const Color(0xFFFF8A00),
+        tooltip: 'Add Cat Profile',
+        child: const Icon(Icons.add, color: Colors.white),
       ),
     );
   }
