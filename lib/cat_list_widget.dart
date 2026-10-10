@@ -29,7 +29,7 @@ class CatListWidget extends StatelessWidget {
         // 3. Handle empty state
         if (!snapshot.hasData || snapshot.data!.docs.isEmpty) {
           return const Center(
-            child: Text('No cats added yet! Tap the button below to add one.'),
+            child: Text('No cats added yet! Tap the button to add one.'),
           );
         }
 
@@ -69,7 +69,7 @@ class CatListWidget extends StatelessWidget {
                   catName,
                   style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 16),
                 ),
-                subtitle: Text('\(breed •\)age yrs • $weight kg'), // Fixed subtitle string
+                subtitle: Text('\Breed: $breed \nAge: $age yrs \nWeight: $weight kg'), // Fixed subtitle string
                 // Optional: Delete button
                 trailing: IconButton(
                   icon: const Icon(Icons.delete, color: Colors.redAccent),

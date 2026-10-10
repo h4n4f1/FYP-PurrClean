@@ -1,3 +1,4 @@
+import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:firebase_auth/firebase_auth.dart';
 import 'package:flutter/material.dart';
 import '../theme/app_styles.dart';
@@ -20,10 +21,10 @@ class HomeScreen extends StatefulWidget {
   const HomeScreen({super.key});
 
   @override
-  State<HomeScreen> createState() => _HomeScreenState();
+  State createState() => _HomeScreenState();
 }
 
-class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
+class _HomeScreenState extends State with WidgetsBindingObserver {
   // Whether the odor-control fan is in Auto or Manual mode.
   // TODO: Wire this up to your backend / device service.
   bool isAutoMode = true;
@@ -57,7 +58,7 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
     }
   }
 
-  Future<void> _refreshEmailVerification() async {
+  Future _refreshEmailVerification() async {
     try {
       await _authService.reloadUser();
     } catch (_) {
@@ -87,7 +88,7 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
   /// TODO: Replace with live device status from the backend.
   String get fanStatusText => isFanRunning ? 'Running' : 'Stopped';
 
-  final List<HealthAlert> alerts = const [
+  final List alerts = const [
     HealthAlert(
       message: '',
       timeAgo: '0h ago',
@@ -113,15 +114,65 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
             children: [
               _buildHeader(),
               if (!_isEmailVerified) _buildEmailVerificationNotice(),
-              const Padding(
-                padding: EdgeInsets.fromLTRB(20, 20, 20, 0),
-                child: Text(
-                  'My Cats',
-                  style: TextStyle(fontSize: 20, fontWeight: FontWeight.bold),
+              
+              // My Cats Header Row with Inline Add Button
+              Padding(
+                padding: const EdgeInsets.fromLTRB(20, 20, 20, 0),
+                child: Row(
+                  mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                  children: [
+                    const Text(
+                      'My Cats',
+                      style: TextStyle(fontSize: 20, fontWeight: FontWeight.bold),
+                    ),
+                    StreamBuilder(
+                      stream: FirebaseFirestore.instance
+                          .collection('cats')
+                          .where('user_id', isEqualTo: currentUserId)
+                          .snapshots(),
+                      builder: (context, snapshot) {
+                        if (!snapshot.hasData || snapshot.hasError) {
+                          return const SizedBox.shrink();
+                        }
+
+                        final catCount = snapshot.data!.docs.length;
+
+                        // If 1 or more cats exist, hide the button completely
+                        if (catCount >= 1) {
+                          return const SizedBox.shrink();
+                        }
+
+                        // Otherwise, show the inline Add Cat button
+                        return TextButton.icon(
+                          onPressed: () {
+                            Navigator.push(
+                              context,
+                              MaterialPageRoute(
+                                builder: (context) => AddCatPage(userId: currentUserId),
+                              ),
+                            );
+                          },
+                          icon: const Icon(Icons.add, size: 18, color: Color(0xFFFF8A00)),
+                          label: const Text(
+                            'Add Cat',
+                            style: TextStyle(color: Color(0xFFFF8A00), fontWeight: FontWeight.bold),
+                          ),
+                          style: TextButton.styleFrom(
+                            backgroundColor: const Color(0xFFFF8A00).withValues(alpha: 0.1),
+                            shape: RoundedRectangleBorder(
+                              borderRadius: BorderRadius.circular(20),
+                            ),
+                          ),
+                        );
+                      },
+                    ),
+                  ],
                 ),
               ),
-              // Show the current user's cats from Firestore.
+
+              // Show the current user's cats from Firestore[cite: 6].
               CatListWidget(userId: currentUserId),
+
               Padding(
                 padding: const EdgeInsets.fromLTRB(20, 20, 20, 32),
                 child: Column(
@@ -147,19 +198,7 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
           ),
         ),
       ),
-      floatingActionButton: FloatingActionButton(
-        onPressed: () {
-          Navigator.push(
-            context,
-            MaterialPageRoute(
-              builder: (context) => AddCatPage(userId: currentUserId),
-            ),
-          );
-        },
-        backgroundColor: const Color(0xFFFF8A00),
-        tooltip: 'Add Cat Profile',
-        child: const Icon(Icons.add, color: Colors.white),
-      ),
+      // floatingActionButton removed completely from here!
     );
   }
 
@@ -571,7 +610,7 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
             value: progress,
             minHeight: 8,
             backgroundColor: AppColors.barTrack,
-            valueColor: AlwaysStoppedAnimation<Color>(color),
+            valueColor: AlwaysStoppedAnimation(color),
           ),
         ),
       ],
@@ -735,7 +774,7 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
     );
   }
 
-  Future<void> _showProfileModal(BuildContext context) async {
+  Future _showProfileModal(BuildContext context) async {
     await showModalBottomSheet(
       context: context,
       isScrollControlled: true,
@@ -770,7 +809,7 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
     );
   }
 
-  Future<void> _handleLogout() async {
+  Future _handleLogout() async {
     setState(() => isSigningOut = true);
     try {
       await _authService.signOut();
@@ -832,7 +871,7 @@ class _ProfileBottomSheetState extends State<_ProfileBottomSheet> {
     _refreshUser();
   }
 
-  Future<void> _refreshUser() async {
+  Future _refreshUser() async {
     setState(() => _isCheckingVerification = true);
     await _authService.reloadUser();
     if (mounted) {
@@ -840,7 +879,7 @@ class _ProfileBottomSheetState extends State<_ProfileBottomSheet> {
     }
   }
 
-  Future<void> _handleSendVerification() async {
+  Future _handleSendVerification() async {
     setState(() => _isSendingVerification = true);
     final result = await _authService.sendEmailVerification();
     if (!mounted) return;
@@ -856,7 +895,7 @@ class _ProfileBottomSheetState extends State<_ProfileBottomSheet> {
     );
   }
 
-  Future<void> _handleLinkGoogle() async {
+  Future _handleLinkGoogle() async {
     setState(() => _isLinkingGoogle = true);
     final result = await _authService.linkWithGoogle();
     if (!mounted) return;
