@@ -5,7 +5,7 @@ import 'package:firebase_auth/firebase_auth.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 
 import 'screens/auth_screen.dart';
-import 'screens/home_screen.dart';
+import 'screens/main_shell.dart';
 import 'services/auth_service.dart';
 
 class AuthWrapper extends StatefulWidget {
@@ -79,6 +79,6 @@ class _AuthWrapperState extends State<AuthWrapper> {
         body: Center(child: CircularProgressIndicator()),
       );
     }
-    return _user == null ? const AuthScreen() : const HomeScreen();
+    return _user == null ? const AuthScreen() : const MainShell();
   }
 }
