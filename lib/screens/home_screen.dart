@@ -1,13 +1,8 @@
-import 'package:cloud_firestore/cloud_firestore.dart';
-import 'package:firebase_auth/firebase_auth.dart';
 import 'package:flutter/material.dart';
 import '../theme/app_styles.dart';
 import '../services/auth_service.dart';
 import '../widgets/dashboard_card.dart';
 import '../widgets/stat_card.dart';
-import 'analytics_screen.dart';
-import '../add_cat_page.dart';       // Import your AddCatPage file
-import '../cat_list_widget.dart';
 
 /// Placeholder alert model.
 /// TODO: Replace with your real model / API response once the backend is ready.
@@ -24,10 +19,10 @@ class HomeScreen extends StatefulWidget {
   final int refreshTick;
 
   @override
-  State createState() => _HomeScreenState();
+  State<HomeScreen> createState() => _HomeScreenState();
 }
 
-class _HomeScreenState extends State with WidgetsBindingObserver {
+class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
   // Whether the odor-control fan is in Auto or Manual mode.
   // TODO: Wire this up to your backend / device service.
   bool isAutoMode = true;
@@ -68,7 +63,7 @@ class _HomeScreenState extends State with WidgetsBindingObserver {
     }
   }
 
-  Future _refreshEmailVerification() async {
+  Future<void> _refreshEmailVerification() async {
     try {
       await _authService.reloadUser();
     } catch (_) {
@@ -98,22 +93,20 @@ class _HomeScreenState extends State with WidgetsBindingObserver {
   /// TODO: Replace with live device status from the backend.
   String get fanStatusText => isFanRunning ? 'Running' : 'Stopped';
 
-  final List alerts = const [
+  final List<HealthAlert> alerts = const [
     HealthAlert(
       message: '',
       timeAgo: '0h ago',
     ),
     HealthAlert(
-      message: '', 
-      timeAgo: '0h ago',),
+      message: '',
+      timeAgo: '0h ago',
+    ),
   ];
   // ---------------------------------------------------------------------
 
   @override
   Widget build(BuildContext context) {
-    // Get the current user's unique ID from Firebase Auth.
-    final String currentUserId = FirebaseAuth.instance.currentUser?.uid ?? '';
-
     return Scaffold(
       backgroundColor: AppColors.background,
       body: SafeArea(
@@ -124,65 +117,6 @@ class _HomeScreenState extends State with WidgetsBindingObserver {
             children: [
               _buildHeader(),
               if (!_isEmailVerified) _buildEmailVerificationNotice(),
-              
-              // My Cats Header Row with Inline Add Button
-              Padding(
-                padding: const EdgeInsets.fromLTRB(20, 20, 20, 0),
-                child: Row(
-                  mainAxisAlignment: MainAxisAlignment.spaceBetween,
-                  children: [
-                    const Text(
-                      'My Cats',
-                      style: TextStyle(fontSize: 20, fontWeight: FontWeight.bold),
-                    ),
-                    StreamBuilder(
-                      stream: FirebaseFirestore.instance
-                          .collection('cats')
-                          .where('user_id', isEqualTo: currentUserId)
-                          .snapshots(),
-                      builder: (context, snapshot) {
-                        if (!snapshot.hasData || snapshot.hasError) {
-                          return const SizedBox.shrink();
-                        }
-
-                        final catCount = snapshot.data!.docs.length;
-
-                        // If 1 or more cats exist, hide the button completely
-                        if (catCount >= 1) {
-                          return const SizedBox.shrink();
-                        }
-
-                        // Otherwise, show the inline Add Cat button
-                        return TextButton.icon(
-                          onPressed: () {
-                            Navigator.push(
-                              context,
-                              MaterialPageRoute(
-                                builder: (context) => AddCatPage(userId: currentUserId),
-                              ),
-                            );
-                          },
-                          icon: const Icon(Icons.add, size: 18, color: Color(0xFFFF8A00)),
-                          label: const Text(
-                            'Add Cat',
-                            style: TextStyle(color: Color(0xFFFF8A00), fontWeight: FontWeight.bold),
-                          ),
-                          style: TextButton.styleFrom(
-                            backgroundColor: const Color(0xFFFF8A00).withValues(alpha: 0.1),
-                            shape: RoundedRectangleBorder(
-                              borderRadius: BorderRadius.circular(20),
-                            ),
-                          ),
-                        );
-                      },
-                    ),
-                  ],
-                ),
-              ),
-
-              // Show the current user's cats from Firestore[cite: 6].
-              CatListWidget(userId: currentUserId),
-
               Padding(
                 padding: const EdgeInsets.fromLTRB(20, 20, 20, 32),
                 child: Column(
@@ -204,7 +138,6 @@ class _HomeScreenState extends State with WidgetsBindingObserver {
           ),
         ),
       ),
-      // floatingActionButton removed completely from here!
     );
   }
 
@@ -616,7 +549,7 @@ class _HomeScreenState extends State with WidgetsBindingObserver {
             value: progress,
             minHeight: 8,
             backgroundColor: AppColors.barTrack,
-            valueColor: AlwaysStoppedAnimation(color),
+            valueColor: AlwaysStoppedAnimation<Color>(color),
           ),
         ),
       ],
@@ -743,490 +676,6 @@ class _HomeScreenState extends State with WidgetsBindingObserver {
         child: Text(
           isFanRunning ? 'Stop Fan' : 'Start Fan',
           style: AppTextStyles.buttonLabel,
-        ),
-      ),
-    );
-  }
-
-  // -- Bottom navigation row -----------------------------------------------
-
-  Widget _buildBottomNavRow() {
-    return Row(
-      children: [
-        Expanded(
-          child: _buildNavCard(
-            icon: Icons.show_chart_rounded,
-            iconBg: AppColors.iconBgOrange,
-            iconColor: AppColors.primary,
-            label: 'Analytics',
-            onTap: () {
-              Navigator.of(context).push(
-                MaterialPageRoute(builder: (_) => const AnalyticsScreen()),
-              );
-            },
-          ),
-        ),
-        const SizedBox(width: 16),
-        Expanded(
-          child: _buildNavCard(
-            icon: Icons.person_outline_rounded,
-            iconBg: AppColors.iconBgYellow,
-            iconColor: AppColors.moderatePillText,
-            label: 'Profile',
-            onTap: () => _showProfileModal(context),
-          ),
-        ),
-      ],
-    );
-  }
-
-  Future _showProfileModal(BuildContext context) async {
-    await showModalBottomSheet(
-      context: context,
-      isScrollControlled: true,
-      backgroundColor: Colors.transparent,
-      builder: (context) => const _ProfileBottomSheet(),
-    );
-    await _refreshEmailVerification();
-  }
-
-  Widget _buildLogoutButton() {
-    return SizedBox(
-      width: double.infinity,
-      height: 52,
-      child: OutlinedButton.icon(
-        onPressed: isSigningOut ? null : _handleLogout,
-        icon: isSigningOut
-            ? const SizedBox(
-                width: 18,
-                height: 18,
-                child: CircularProgressIndicator(strokeWidth: 2),
-              )
-            : const Icon(Icons.logout_rounded),
-        label: Text(isSigningOut ? 'Signing out...' : 'Log out'),
-        style: OutlinedButton.styleFrom(
-          foregroundColor: AppColors.primary,
-          side: const BorderSide(color: AppColors.primary),
-          shape: RoundedRectangleBorder(
-            borderRadius: AppDecorations.buttonRadius,
-          ),
-        ),
-      ),
-    );
-  }
-
-  Future _handleLogout() async {
-    setState(() => isSigningOut = true);
-    try {
-      await _authService.signOut();
-    } catch (_) {
-      if (!mounted) return;
-      setState(() => isSigningOut = false);
-      ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(content: Text('Could not log out. Please try again.')),
-      );
-    }
-  }
-
-  Widget _buildNavCard({
-    required IconData icon,
-    required Color iconBg,
-    required Color iconColor,
-    required String label,
-    required VoidCallback onTap,
-  }) {
-    return GestureDetector(
-      onTap: onTap,
-      child: DashboardCard(
-        padding: const EdgeInsets.symmetric(vertical: 24),
-        child: Column(
-          children: [
-            RoundIcon(icon: icon, background: iconBg, iconColor: iconColor),
-            const SizedBox(height: 10),
-            Text(
-              label,
-              style: const TextStyle(
-                fontWeight: FontWeight.bold,
-                fontSize: 15,
-                color: AppColors.textDark,
-              ),
-            ),
-          ],
-        ),
-      ),
-    );
-  }
-}
-
-class _ProfileBottomSheet extends StatefulWidget {
-  const _ProfileBottomSheet();
-
-  @override
-  State<_ProfileBottomSheet> createState() => _ProfileBottomSheetState();
-}
-
-class _ProfileBottomSheetState extends State<_ProfileBottomSheet> {
-  final _authService = FirebaseAuthService();
-  bool _isSendingVerification = false;
-  bool _isLinkingGoogle = false;
-  bool _isCheckingVerification = false;
-
-  @override
-  void initState() {
-    super.initState();
-    _refreshUser();
-  }
-
-  Future _refreshUser() async {
-    setState(() => _isCheckingVerification = true);
-    await _authService.reloadUser();
-    if (mounted) {
-      setState(() => _isCheckingVerification = false);
-    }
-  }
-
-  Future _handleSendVerification() async {
-    setState(() => _isSendingVerification = true);
-    final result = await _authService.sendEmailVerification();
-    if (!mounted) return;
-    setState(() => _isSendingVerification = false);
-    ScaffoldMessenger.of(context).showSnackBar(
-      SnackBar(
-        content: Text(
-          result.success
-              ? 'Verification email sent! Check your inbox or spam folder.'
-              : (result.errorMessage ?? 'Failed to send verification email.'),
-        ),
-      ),
-    );
-  }
-
-  Future _handleLinkGoogle() async {
-    setState(() => _isLinkingGoogle = true);
-    final result = await _authService.linkWithGoogle();
-    if (!mounted) return;
-    setState(() => _isLinkingGoogle = false);
-    ScaffoldMessenger.of(context).showSnackBar(
-      SnackBar(
-        content: Text(
-          result.success
-              ? 'Google account successfully linked!'
-              : (result.errorMessage ?? 'Google account linking failed.'),
-        ),
-      ),
-    );
-    if (result.success) {
-      setState(() {});
-    }
-  }
-
-  @override
-  Widget build(BuildContext context) {
-    final user = _authService.currentUser;
-    final isVerified = _authService.isEmailVerified;
-    final isGoogleLinked = _authService.isGoogleLinked;
-    final email = user?.email ?? 'No email available';
-    final displayName = user?.displayName ?? 'PurrClean User';
-
-    return Container(
-      decoration: const BoxDecoration(
-        color: Colors.white,
-        borderRadius: BorderRadius.vertical(top: Radius.circular(28)),
-      ),
-      padding: const EdgeInsets.fromLTRB(24, 16, 24, 32),
-      child: SafeArea(
-        top: false,
-        child: SingleChildScrollView(
-          child: Column(
-            mainAxisSize: MainAxisSize.min,
-            crossAxisAlignment: CrossAxisAlignment.stretch,
-            children: [
-              // Drag handle
-              Center(
-                child: Container(
-                  width: 40,
-                  height: 4,
-                  margin: const EdgeInsets.only(bottom: 20),
-                  decoration: BoxDecoration(
-                    color: Colors.grey.shade300,
-                    borderRadius: BorderRadius.circular(2),
-                  ),
-                ),
-              ),
-
-              // Profile Header
-              Row(
-                children: [
-                  CircleAvatar(
-                    radius: 28,
-                    backgroundColor: AppColors.iconBgOrange,
-                    child: Image.asset('assets/images/logo.png', width: 36, height: 36),
-                  ),
-                  const SizedBox(width: 16),
-                  Expanded(
-                    child: Column(
-                      crossAxisAlignment: CrossAxisAlignment.start,
-                      children: [
-                        Text(
-                          displayName.isNotEmpty ? displayName : 'PurrClean User',
-                          style: const TextStyle(
-                            fontSize: 18,
-                            fontWeight: FontWeight.bold,
-                            color: AppColors.textDark,
-                          ),
-                        ),
-                        const SizedBox(height: 2),
-                        Text(
-                          email,
-                          style: TextStyle(
-                            fontSize: 13,
-                            color: Colors.grey.shade600,
-                          ),
-                        ),
-                      ],
-                    ),
-                  ),
-                ],
-              ),
-              const SizedBox(height: 20),
-              const Divider(),
-              const SizedBox(height: 12),
-
-              // Section: Email Verification
-              const Text(
-                'Email Verification',
-                style: TextStyle(
-                  fontSize: 15,
-                  fontWeight: FontWeight.bold,
-                  color: AppColors.textDark,
-                ),
-              ),
-              const SizedBox(height: 10),
-              Container(
-                padding: const EdgeInsets.all(14),
-                decoration: BoxDecoration(
-                  color: isVerified
-                      ? const Color(0xFFE8F8EE)
-                      : const Color(0xFFFFF7ED),
-                  borderRadius: BorderRadius.circular(14),
-                  border: Border.all(
-                    color: isVerified
-                        ? const Color(0xFF3EBD6A).withValues(alpha: 0.3)
-                        : AppColors.primary.withValues(alpha: 0.3),
-                  ),
-                ),
-                child: Column(
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  children: [
-                    Row(
-                      children: [
-                        Icon(
-                          isVerified
-                              ? Icons.verified_rounded
-                              : Icons.warning_amber_rounded,
-                          color: isVerified
-                              ? const Color(0xFF3EBD6A)
-                              : AppColors.primary,
-                          size: 20,
-                        ),
-                        const SizedBox(width: 8),
-                        Text(
-                          isVerified ? 'Email Verified' : 'Email Not Verified',
-                          style: TextStyle(
-                            fontWeight: FontWeight.bold,
-                            fontSize: 14,
-                            color: isVerified
-                                ? const Color(0xFF2E7D32)
-                                : const Color(0xFFC2410C),
-                          ),
-                        ),
-                        const Spacer(),
-                        if (!isVerified)
-                          InkWell(
-                            onTap: _isCheckingVerification ? null : _refreshUser,
-                            child: _isCheckingVerification
-                                ? const SizedBox(
-                                    width: 14,
-                                    height: 14,
-                                    child: CircularProgressIndicator(strokeWidth: 2),
-                                  )
-                                : const Icon(Icons.refresh, size: 18, color: Colors.grey),
-                          ),
-                      ],
-                    ),
-                    if (!isVerified) ...[
-                      const SizedBox(height: 8),
-                      Text(
-                        'Verify your email to keep your account secure and prevent losing access.',
-                        style: TextStyle(fontSize: 12, color: Colors.grey.shade700),
-                      ),
-                      const SizedBox(height: 10),
-                      Align(
-                        alignment: Alignment.centerRight,
-                        child: TextButton.icon(
-                          onPressed: _isSendingVerification ? null : _handleSendVerification,
-                          icon: _isSendingVerification
-                              ? const SizedBox(
-                                  width: 14,
-                                  height: 14,
-                                  child: CircularProgressIndicator(
-                                    strokeWidth: 2,
-                                    color: AppColors.primary,
-                                  ),
-                                )
-                              : const Icon(Icons.send_rounded, size: 16),
-                          label: const Text('Resend Verification Email'),
-                          style: TextButton.styleFrom(
-                            foregroundColor: AppColors.primary,
-                            visualDensity: VisualDensity.compact,
-                          ),
-                        ),
-                      ),
-                    ],
-                  ],
-                ),
-              ),
-              const SizedBox(height: 20),
-
-              // Section: Account Linking
-              const Text(
-                'Linked Accounts',
-                style: TextStyle(
-                  fontSize: 15,
-                  fontWeight: FontWeight.bold,
-                  color: AppColors.textDark,
-                ),
-              ),
-              const SizedBox(height: 10),
-
-              // Email / Password Provider Row
-              Container(
-                padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 12),
-                decoration: BoxDecoration(
-                  color: AppColors.inputFill,
-                  borderRadius: BorderRadius.circular(14),
-                ),
-                child: Row(
-                  children: [
-                    const Icon(Icons.email_outlined, color: AppColors.textDark, size: 22),
-                    const SizedBox(width: 12),
-                    const Expanded(
-                      child: Text(
-                        'Email & Password',
-                        style: TextStyle(
-                          fontWeight: FontWeight.w600,
-                          fontSize: 14,
-                          color: AppColors.textDark,
-                        ),
-                      ),
-                    ),
-                    Container(
-                      padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 4),
-                      decoration: BoxDecoration(
-                        color: Colors.green.shade50,
-                        borderRadius: BorderRadius.circular(20),
-                        border: Border.all(color: Colors.green.shade300),
-                      ),
-                      child: Row(
-                        mainAxisSize: MainAxisSize.min,
-                        children: [
-                          Icon(Icons.check_circle, size: 14, color: Colors.green.shade700),
-                          const SizedBox(width: 4),
-                          Text(
-                            'Active',
-                            style: TextStyle(
-                              fontSize: 12,
-                              fontWeight: FontWeight.bold,
-                              color: Colors.green.shade700,
-                            ),
-                          ),
-                        ],
-                      ),
-                    ),
-                  ],
-                ),
-              ),
-              const SizedBox(height: 10),
-
-              // Google Provider Row
-              Container(
-                padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 12),
-                decoration: BoxDecoration(
-                  color: AppColors.inputFill,
-                  borderRadius: BorderRadius.circular(14),
-                ),
-                child: Row(
-                  children: [
-                    Image.asset('assets/images/google_logo.png', width: 22, height: 22),
-                    const SizedBox(width: 12),
-                    const Expanded(
-                      child: Text(
-                        'Google Sign-In',
-                        style: TextStyle(
-                          fontWeight: FontWeight.w600,
-                          fontSize: 14,
-                          color: AppColors.textDark,
-                        ),
-                      ),
-                    ),
-                    if (isGoogleLinked)
-                      Container(
-                        padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 4),
-                        decoration: BoxDecoration(
-                          color: Colors.green.shade50,
-                          borderRadius: BorderRadius.circular(20),
-                          border: Border.all(color: Colors.green.shade300),
-                        ),
-                        child: Row(
-                          mainAxisSize: MainAxisSize.min,
-                          children: [
-                            Icon(Icons.check_circle, size: 14, color: Colors.green.shade700),
-                            const SizedBox(width: 4),
-                            Text(
-                              'Linked',
-                              style: TextStyle(
-                                fontSize: 12,
-                                fontWeight: FontWeight.bold,
-                                color: Colors.green.shade700,
-                              ),
-                            ),
-                          ],
-                        ),
-                      )
-                    else
-                      ElevatedButton(
-                        onPressed: _isLinkingGoogle ? null : _handleLinkGoogle,
-                        style: ElevatedButton.styleFrom(
-                          backgroundColor: AppColors.primary,
-                          elevation: 0,
-                          padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 8),
-                          shape: RoundedRectangleBorder(
-                            borderRadius: BorderRadius.circular(12),
-                          ),
-                        ),
-                        child: _isLinkingGoogle
-                            ? const SizedBox(
-                                width: 14,
-                                height: 14,
-                                child: CircularProgressIndicator(
-                                  strokeWidth: 2,
-                                  color: Colors.white,
-                                ),
-                              )
-                            : const Text(
-                                'Link Google',
-                                style: TextStyle(
-                                  fontSize: 12,
-                                  fontWeight: FontWeight.bold,
-                                  color: Colors.white,
-                                ),
-                              ),
-                      ),
-                  ],
-                ),
-              ),
-            ],
-          ),
         ),
       ),
     );
