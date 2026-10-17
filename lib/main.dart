@@ -5,13 +5,14 @@ import 'firebase_options.dart';
 import 'package:firebase_messaging/firebase_messaging.dart';
 
 @pragma('vm:entry-point')
-Future<void> _firebaseMessagingBackgroundHandler(RemoteMessage message) async {
+Future _firebaseMessagingBackgroundHandler(RemoteMessage message) async {
   await Firebase.initializeApp(
     options: DefaultFirebaseOptions.currentPlatform,
   );
   print('Handling a background message: ${message.messageId}');
 }
-Future<void> main() async {
+
+Future main() async {
   WidgetsFlutterBinding.ensureInitialized();
   await Firebase.initializeApp(
     options: DefaultFirebaseOptions.currentPlatform,
@@ -42,7 +43,6 @@ void _setupPushNotifications() async {
     FirebaseMessaging.onMessage.listen((RemoteMessage message) {
       print('Got a message whilst in the foreground!');
       
-      // FIX: Extracting to a local final variable forces type promotion to bypass the analyzer error
       final notification = message.notification;
       
       if (notification != null) {
@@ -59,9 +59,10 @@ class MyApp extends StatefulWidget {
   const MyApp({super.key});
 
   @override
-  State<MyApp> createState() => _MyAppState();
-} 
-class _MyAppState extends State<MyApp> {
+  State createState() => _MyAppState();
+}
+
+class _MyAppState extends State {
   @override
   void initState() {
     super.initState();

@@ -1,8 +1,11 @@
+import 'package:cloud_firestore/cloud_firestore.dart'; // <-- Add this import
+import 'package:firebase_auth/firebase_auth.dart';       // <-- Add this import
 import 'package:flutter/material.dart';
 
 import '../services/auth_service.dart';
 import '../theme/app_styles.dart';
 import '../widgets/custom_text_field.dart';
+import '../add_cat_page.dart';                         // <-- Import your AddCatPage file
 
 class AuthScreen extends StatefulWidget {
   const AuthScreen({super.key});
@@ -35,7 +38,7 @@ class _AuthScreenState extends State<AuthScreen> {
     super.dispose();
   }
 
-  Future<void> _handleLogin() async {
+  Future _handleLogin() async {
     if (!_loginFormKey.currentState!.validate()) return;
     setState(() => isLoading = true);
     final result = await _authService.login(
@@ -49,7 +52,7 @@ class _AuthScreenState extends State<AuthScreen> {
     }
   }
 
-  Future<void> _handleRegister() async {
+  Future _handleRegister() async {
     if (!_registerFormKey.currentState!.validate()) return;
     setState(() => isLoading = true);
     final email = _registerEmailController.text.trim();
@@ -60,12 +63,21 @@ class _AuthScreenState extends State<AuthScreen> {
     );
     if (!mounted) return;
     setState(() => isLoading = false);
+    
     if (!result.success) {
       _showMessage(result.errorMessage ?? 'Registration failed.');
     } else {
-      _showMessage(
-        'Verification email sent to $email. Check your inbox or spam folder.',
-      );
+      final currentUser = FirebaseAuth.instance.currentUser;
+      if (currentUser != null) {
+        // Use push (instead of pushReplacement if your auth wrapper interferes) 
+        // or ensure it pops/replaces the entire stack to AddCatPage:
+        Navigator.of(context).pushAndRemoveUntil(
+          MaterialPageRoute(
+            builder: (context) => AddCatPage(userId: currentUser.uid),
+          ),
+          (route) => false, // Clears the auth screen out of the navigation stack
+        );
+      }
     }
   }
 
@@ -330,13 +342,37 @@ class _AuthScreenState extends State<AuthScreen> {
     );
   }
 
-  Future<void> _handleGoogleSignIn() async {
+  Future _handleGoogleSignIn() async {
     setState(() => isGoogleLoading = true);
     final result = await _authService.signInWithGoogle();
     if (!mounted) return;
     setState(() => isGoogleLoading = false);
+
     if (!result.success) {
       _showMessage(result.errorMessage ?? 'Google sign-in failed.');
+    } else {
+      final currentUser = FirebaseAuth.instance.currentUser;
+      if (currentUser != null) {
+        // Check if this user already has a cat registered in Firestore
+        final catQuery = await FirebaseFirestore.instance
+            .collection('cats')
+            .where('user_id', isEqualTo: currentUser.uid)
+            .get();
+
+        if (!mounted) return;
+
+        // If they don't have any cats yet, route them to AddCatPage
+        if (catQuery.docs.isEmpty) {
+          Navigator.of(context).pushAndRemoveUntil(
+            MaterialPageRoute(
+              builder: (context) => AddCatPage(userId: currentUser.uid),
+            ),
+            (route) => false,
+          );
+        }
+        // If they already have a cat, your main app wrapper (like StreamBuilder on auth state) 
+        // will automatically land them on the HomeScreen.
+      }
     }
   }
 }
