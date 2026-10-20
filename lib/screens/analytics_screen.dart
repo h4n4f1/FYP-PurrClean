@@ -1,8 +1,5 @@
 import 'package:flutter/material.dart';
 import 'package:fl_chart/fl_chart.dart';
-import '../theme/app_styles.dart';
-import '../widgets/dashboard_card.dart';
-import '../widgets/analytics_chart.dart';
 
 enum AnalyticsPeriod { daily, weekly, monthly }
 
@@ -23,7 +20,7 @@ class BehavioralInsight {
 }
 
 class AnalyticsScreen extends StatefulWidget {
-  const AnalyticsScreen({Key? key}) : super(key: key);
+  const AnalyticsScreen({super.key});
 
   @override
   State<AnalyticsScreen> createState() => _AnalyticsScreenState();
@@ -176,7 +173,7 @@ class _AnalyticsScreenState extends State<AnalyticsScreen> {
                     dotData: FlDotData(show: false),
                     belowBarData: BarAreaData(
                       show: true,
-                      color: Colors.orange.withOpacity(0.15),
+                      color: Colors.orange.withValues(alpha: 0.15),
                     ),
                   ),
                 ],

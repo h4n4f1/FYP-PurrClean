@@ -5,7 +5,7 @@ import 'package:cloud_firestore/cloud_firestore.dart';
 class CatListWidget extends StatelessWidget {
   final String userId; // Pass the current user's ID
 
-  const CatListWidget({Key? key, required this.userId}) : super(key: key);
+  const CatListWidget({super.key, required this.userId});
 
   @override
   Widget build(BuildContext context) {
@@ -69,7 +69,7 @@ class CatListWidget extends StatelessWidget {
                   catName,
                   style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 16),
                 ),
-                subtitle: Text('\Breed: $breed \nAge: $age yrs \nWeight: $weight kg'), // Fixed subtitle string
+                subtitle: Text('Breed: $breed \nAge: $age yrs \nWeight: $weight kg'), // Fixed subtitle string
                 // Optional: Delete button
                 trailing: IconButton(
                   icon: const Icon(Icons.delete, color: Colors.redAccent),

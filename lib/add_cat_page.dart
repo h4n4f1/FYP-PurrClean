@@ -7,10 +7,10 @@ import 'package:cloud_firestore/cloud_firestore.dart';
 class AddCatPage extends StatefulWidget {
   final String userId; // Pass the current logged-in user's ID
 
-  const AddCatPage({Key? key, required this.userId}) : super(key: key);
+  const AddCatPage({super.key, required this.userId});
 
   @override
-  _AddCatPageState createState() => _AddCatPageState();
+  State<AddCatPage> createState() => _AddCatPageState();
 }
 
 class _AddCatPageState extends State<AddCatPage> {
@@ -24,10 +24,19 @@ class _AddCatPageState extends State<AddCatPage> {
   bool _isLoading = false;
   final ImagePicker _picker = ImagePicker();
 
+  @override
+  void dispose() {
+    _nameController.dispose();
+    _breedController.dispose();
+    _weightController.dispose();
+    _ageController.dispose();
+    super.dispose();
+  }
+
   // Function to pick image from Camera or Gallery
-  Future _pickImage(ImageSource source) async {
+  Future<void> _pickImage(ImageSource source) async {
     final pickedFile = await _picker.pickImage(
-      source: source, 
+      source: source,
       imageQuality: 50, // Compressed slightly to fit nicely in Firestore
       maxWidth: 500,
       maxHeight: 500,
@@ -40,12 +49,16 @@ class _AddCatPageState extends State<AddCatPage> {
   }
 
   // Save cat profile details and Base64 image directly to Firestore
-  Future _saveCatProfile() async {
+  Future<void> _saveCatProfile() async {
     if (!_formKey.currentState!.validate()) return;
 
     setState(() {
       _isLoading = true;
     });
+
+    // Grab these BEFORE any await so no context is needed afterwards
+    final messenger = ScaffoldMessenger.of(context);
+    final navigator = Navigator.of(context);
 
     try {
       String base64Image = '';
@@ -68,18 +81,20 @@ class _AddCatPageState extends State<AddCatPage> {
       });
 
       // Success feedback
-      ScaffoldMessenger.of(context).showSnackBar(
+      messenger.showSnackBar(
         const SnackBar(content: Text('Cat profile added successfully!')),
       );
-      Navigator.pop(context);
+      navigator.pop();
     } catch (e) {
-      ScaffoldMessenger.of(context).showSnackBar(
+      messenger.showSnackBar(
         SnackBar(content: Text('Error: $e')),
       );
     } finally {
-      setState(() {
-        _isLoading = false;
-      });
+      if (mounted) {
+        setState(() {
+          _isLoading = false;
+        });
+      }
     }
   }
 
@@ -125,9 +140,11 @@ class _AddCatPageState extends State<AddCatPage> {
                 child: CircleAvatar(
                   radius: 60,
                   backgroundColor: Colors.grey[300],
-                  backgroundImage: _imageFile != null ? FileImage(_imageFile!) : null,
+                  backgroundImage:
+                      _imageFile != null ? FileImage(_imageFile!) : null,
                   child: _imageFile == null
-                      ? const Icon(Icons.camera_alt, size: 40, color: Colors.grey)
+                      ? const Icon(Icons.camera_alt,
+                          size: 40, color: Colors.grey)
                       : null,
                 ),
               ),
@@ -136,23 +153,34 @@ class _AddCatPageState extends State<AddCatPage> {
               // Cat Name
               TextFormField(
                 controller: _nameController,
-                decoration: const InputDecoration(labelText: "Cat's Name", border: OutlineInputBorder()),
-                validator: (value) => value!.isEmpty ? 'Please enter a name' : null,
+                decoration: const InputDecoration(
+                  labelText: "Cat's Name",
+                  border: OutlineInputBorder(),
+                ),
+                validator: (value) =>
+                    (value == null || value.isEmpty) ? 'Please enter a name' : null,
               ),
               const SizedBox(height: 15),
 
               // Breed
               TextFormField(
                 controller: _breedController,
-                decoration: const InputDecoration(labelText: 'Breed', border: OutlineInputBorder()),
+                decoration: const InputDecoration(
+                  labelText: 'Breed',
+                  border: OutlineInputBorder(),
+                ),
               ),
               const SizedBox(height: 15),
 
               // Weight
               TextFormField(
                 controller: _weightController,
-                keyboardType: const TextInputType.numberWithOptions(decimal: true),
-                decoration: const InputDecoration(labelText: 'Weight (kg)', border: OutlineInputBorder()),
+                keyboardType:
+                    const TextInputType.numberWithOptions(decimal: true),
+                decoration: const InputDecoration(
+                  labelText: 'Weight (kg)',
+                  border: OutlineInputBorder(),
+                ),
               ),
               const SizedBox(height: 15),
 
@@ -160,7 +188,10 @@ class _AddCatPageState extends State<AddCatPage> {
               TextFormField(
                 controller: _ageController,
                 keyboardType: TextInputType.number,
-                decoration: const InputDecoration(labelText: 'Age (Years)', border: OutlineInputBorder()),
+                decoration: const InputDecoration(
+                  labelText: 'Age (Years)',
+                  border: OutlineInputBorder(),
+                ),
               ),
               const SizedBox(height: 30),
 
@@ -172,7 +203,8 @@ class _AddCatPageState extends State<AddCatPage> {
                   onPressed: _isLoading ? null : _saveCatProfile,
                   child: _isLoading
                       ? const CircularProgressIndicator(color: Colors.white)
-                      : const Text('Save Cat Profile', style: TextStyle(fontSize: 16)),
+                      : const Text('Save Cat Profile',
+                          style: TextStyle(fontSize: 16)),
                 ),
               ),
             ],

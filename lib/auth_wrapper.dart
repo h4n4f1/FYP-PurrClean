@@ -5,8 +5,10 @@ import 'package:firebase_auth/firebase_auth.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 
 import 'screens/auth_screen.dart';
+import 'screens/device_setup_screen.dart';
 import 'screens/main_shell.dart';
 import 'services/auth_service.dart';
+import 'services/device_provisioning_service.dart';
 
 class AuthWrapper extends StatefulWidget {
   const AuthWrapper({super.key});
@@ -19,6 +21,10 @@ class _AuthWrapperState extends State<AuthWrapper> {
   static const _sessionTimeout = Duration(days: 90);
   User? _user;
   bool _isCheckingSession = true;
+
+  /// Whether the ESP32 has already been connected to the home Wi-Fi from this
+  /// phone. null = still loading.
+  bool? _deviceReady;
   late final StreamSubscription<User?> _authSubscription;
 
   final _authService = FirebaseAuthService();
@@ -26,7 +32,14 @@ class _AuthWrapperState extends State<AuthWrapper> {
   @override
   void initState() {
     super.initState();
+    _loadDeviceState();
     _authSubscription = _authService.authStateChanges.listen(_handleAuthStateChanged);
+  }
+
+  Future<void> _loadDeviceState() async {
+    final ready = await DeviceProvisioningService.instance.isProvisioned();
+    if (!mounted) return;
+    setState(() => _deviceReady = ready);
   }
 
   @override
@@ -74,11 +87,20 @@ class _AuthWrapperState extends State<AuthWrapper> {
 
   @override
   Widget build(BuildContext context) {
-    if (_isCheckingSession) {
+    if (_isCheckingSession || _deviceReady == null) {
       return const Scaffold(
         body: Center(child: CircularProgressIndicator()),
       );
     }
-    return _user == null ? const AuthScreen() : const MainShell();
+    if (_user != null) return const MainShell();
+
+    // Not signed in: the ESP32 must be on the home Wi-Fi before the user can
+    // log in or register.
+    if (_deviceReady == false) {
+      return DeviceSetupScreen(
+        onComplete: () => setState(() => _deviceReady = true),
+      );
+    }
+    return const AuthScreen();
   }
 }

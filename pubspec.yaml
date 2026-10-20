@@ -31,6 +31,8 @@ dependencies:
   google_fonts: ^6.2.1
   flutter:
     sdk: flutter
+  flutter_esp_ble_prov:
+    path: packages/flutter_esp_ble_prov
 
   # The following adds the Cupertino Icons font to your application.
   # Use with the CupertinoIcons class for iOS style icons.
@@ -44,6 +46,7 @@ dependencies:
   firebase_messaging: ^16.6.0
   fl_chart: ^1.2.0
   image_picker: ^1.1.2
+  permission_handler: ^13.0.2
 
 dev_dependencies:
   flutter_launcher_icons: ^0.14.0
