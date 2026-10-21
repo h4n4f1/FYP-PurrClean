@@ -6,6 +6,7 @@ import '../theme/app_styles.dart';
 import '../widgets/dashboard_card.dart';
 import '../widgets/profile_widgets.dart';
 import 'cat_settings_screen.dart';
+import 'device_setup_screen.dart';
 
 class _NotificationOption {
   const _NotificationOption(this.key, this.title, this.subtitle);
@@ -97,6 +98,23 @@ class _SettingsScreenState extends State<SettingsScreen> {
               onTap: () => Navigator.of(context).push(
                 MaterialPageRoute(
                   builder: (_) => const CatSettingsScreen(),
+                ),
+              ),
+            ),
+          ),
+          const SizedBox(height: 18),
+          DashboardCard(
+            padding: const EdgeInsets.symmetric(vertical: 8),
+            child: SettingsTile(
+              icon: Icons.wifi_rounded,
+              title: 'Device Wi-Fi Setup',
+              subtitle: 'Connect or reconnect your PurrClean to Wi-Fi',
+              onTap: () => Navigator.of(context).push(
+                MaterialPageRoute(
+                  builder: (ctx) => DeviceSetupScreen(
+                    showBackButton: true,
+                    onComplete: () => Navigator.of(ctx).pop(),
+                  ),
                 ),
               ),
             ),

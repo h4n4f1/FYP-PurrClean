@@ -22,12 +22,10 @@ class DeviceProvisioningService {
   /// Proof-of-possession string the ESP32 expects (Security 1).
   static const String proofOfPossession = 'purrclean-pop';
 
-  /// Dev only: set by the hidden button on the setup screen. Lasts until the
-  /// app process is closed.
-  static bool devSkipSetup = false;
-
   static const String _provisionedKey = 'device_wifi_provisioned';
   static const String _deviceNameKey = 'device_ble_name';
+
+  static String _setupStepKey(String uid) => 'device_setup_step_done_$uid';
 
   final FlutterEspBleProv _ble = FlutterEspBleProv();
 
@@ -52,51 +50,82 @@ class DeviceProvisioningService {
     return prefs.getString(_deviceNameKey);
   }
 
-  /// Marks the device as needing setup again, but REMEMBERS which device it
-  /// was so the app keeps watching it until setup is finished.
-  Future<void> markNeedsSetup() async {
-    final prefs = await SharedPreferences.getInstance();
-    await prefs.setBool(_provisionedKey, false);
-  }
-
-  /// True when a device was set up before, its Wi-Fi has since been reset,
-  /// and setup has not been completed again.
-  Future<bool> needsSetup() async {
-    final prefs = await SharedPreferences.getInstance();
-    return prefs.getString(_deviceNameKey) != null &&
-        !(prefs.getBool(_provisionedKey) ?? false);
-  }
-
-  /// Forget the device completely (e.g. when the user wants to set up a
-  /// different one).
+  /// Forget the device completely (e.g. to set up a different one).
   Future<void> clearProvisioned() async {
     final prefs = await SharedPreferences.getInstance();
     await prefs.remove(_provisionedKey);
     await prefs.remove(_deviceNameKey);
   }
 
+  /// Whether this user has already been through the post-login device step
+  /// (either finished it or tapped "Skip for now").
+  Future<bool> isSetupStepDone(String uid) async {
+    final prefs = await SharedPreferences.getInstance();
+    return prefs.getBool(_setupStepKey(uid)) ?? false;
+  }
+
+  Future<void> markSetupStepDone(String uid) async {
+    final prefs = await SharedPreferences.getInstance();
+    await prefs.setBool(_setupStepKey(uid), true);
+  }
+
   // ---- permissions ---------------------------------------------------
 
-  /// Android needs runtime Bluetooth (and, on older versions, location)
-  /// permission to scan. iOS shows its own Bluetooth prompt automatically on
-  /// first use, so nothing is needed there.
-  Future<bool> ensurePermissions() async {
-    if (defaultTargetPlatform != TargetPlatform.android) return true;
+  /// Returns null when everything needed for scanning is OK, otherwise a
+  /// message telling the user exactly what to fix.
+  ///
+  /// Android needs Location permission (and the Location switch turned on) to
+  /// scan for Bluetooth devices. iOS shows its own Bluetooth prompt
+  /// automatically on first use, so nothing is needed there.
+  Future<String?> checkAccess() async {
+    if (defaultTargetPlatform != TargetPlatform.android) return null;
 
-    final results = await [
+    // Request Bluetooth first, then Location on its own. Location is
+    // requested as a full group (fine + coarse together), which Android 12+
+    // requires - otherwise the pop-up never shows.
+    final bt = await [
       Permission.bluetoothScan,
       Permission.bluetoothConnect,
-      Permission.locationWhenInUse,
     ].request();
 
-    final bluetoothOk = (results[Permission.bluetoothScan]?.isGranted ??
-            false) &&
-        (results[Permission.bluetoothConnect]?.isGranted ?? false);
-    final locationOk = results[Permission.locationWhenInUse]?.isGranted ?? false;
+    final btDenied = bt.values.any((s) => !s.isGranted);
+    if (btDenied) {
+      final blocked = bt.values.any((s) => s.isPermanentlyDenied);
+      if (blocked) {
+        await openAppSettings();
+        return 'Nearby devices permission is blocked. In the settings page '
+            'that just opened, go to Permissions, allow "Nearby devices", '
+            'then come back and try again.';
+      }
+      return 'PurrClean needs the Nearby devices (Bluetooth) permission to '
+          'find your device. Please tap Allow and try again.';
+    }
 
-    // Android 12+ uses the Bluetooth permissions; Android 11 and below use
-    // location for BLE scanning.
-    return bluetoothOk || locationOk;
+    var location = await Permission.location.status;
+    if (!location.isGranted) {
+      location = await Permission.location.request();
+    }
+
+    if (!location.isGranted) {
+      if (location.isPermanentlyDenied) {
+        await openAppSettings();
+        return 'Location permission is blocked. In the settings page that '
+            'just opened, go to Permissions > Location, choose "Allow only '
+            'while using the app" and turn on "Use precise location", then '
+            'come back and try again.';
+      }
+      return 'PurrClean needs Location permission to find nearby Bluetooth '
+          'devices. Please tap Allow (choose "Precise") and try again.';
+    }
+
+    final locationOn = await Permission.location.serviceStatus.isEnabled;
+    if (!locationOn) {
+      return 'Please turn on Location (GPS) in your phone\'s quick settings '
+          'panel, then try again. Android needs it to scan for Bluetooth '
+          'devices.';
+    }
+
+    return null;
   }
 
   // ---- provisioning steps --------------------------------------------

@@ -83,12 +83,19 @@ class PermissionManager(val boss: Boss) : PluginRegistry.RequestPermissionsResul
 
   /**
    * Required permissions for the current version of the SDK.
+   *
+   * ACCESS_FINE_LOCATION is required on every version because the Espressif
+   * scanner checks for it before it starts a BLE scan.
    */
   val permissions: Array<String>
     get() {
       // https://developer.android.com/guide/topics/connectivity/bluetooth/permissions
       return if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) {
-        arrayOf(Manifest.permission.BLUETOOTH_SCAN, Manifest.permission.BLUETOOTH_CONNECT)
+        arrayOf(
+          Manifest.permission.BLUETOOTH_SCAN,
+          Manifest.permission.BLUETOOTH_CONNECT,
+          Manifest.permission.ACCESS_FINE_LOCATION
+        )
       } else {
         arrayOf(Manifest.permission.ACCESS_FINE_LOCATION, Manifest.permission.BLUETOOTH, Manifest.permission.BLUETOOTH_ADMIN)
       }
@@ -239,28 +246,46 @@ class BleScanManager(boss: Boss) : ActionManager(boss) {
   override fun call(ctx: CallContext) {
     boss.d("searchBleEspDevices: start")
     val prefix = ctx.arg("prefix") ?: return
+    var replied = false
 
-    boss.espManager.searchBleEspDevices(prefix, object : BleScanListener {
-      override fun scanStartFailed() {
-        TODO("Not yet implemented")
+    fun replyError(message: String) {
+      Handler(Looper.getMainLooper()).post {
+        if (replied) return@post
+        replied = true
+        ctx.result.error("E_BLE_SCAN", message, null)
       }
+    }
 
-      override fun onPeripheralFound(device: BluetoothDevice?, scanResult: ScanResult?) {
-        device ?: return
-        scanResult ?: return
-        boss.devices.put(device.name, BleConnector(device, scanResult))
-      }
+    try {
+      boss.espManager.searchBleEspDevices(prefix, object : BleScanListener {
+        override fun scanStartFailed() {
+          boss.e("searchBleEspDevices: scanStartFailed")
+          replyError("Bluetooth scan could not start. Turn on Bluetooth and Location, then try again.")
+        }
 
-      override fun scanCompleted() {
-        ctx.result.success(ArrayList<String>(boss.devices.keys))
-        boss.d("searchBleEspDevices: scanComplete")
-      }
+        override fun onPeripheralFound(device: BluetoothDevice?, scanResult: ScanResult?) {
+          device ?: return
+          scanResult ?: return
+          boss.devices.put(device.name, BleConnector(device, scanResult))
+        }
 
-      override fun onFailure(e: java.lang.Exception?) {
-        TODO("Not yet implemented")
-      }
+        override fun scanCompleted() {
+          Handler(Looper.getMainLooper()).post {
+            if (replied) return@post
+            replied = true
+            ctx.result.success(ArrayList<String>(boss.devices.keys))
+          }
+          boss.d("searchBleEspDevices: scanComplete")
+        }
 
-    })
+        override fun onFailure(e: java.lang.Exception?) {
+          boss.e("searchBleEspDevices: onFailure $e")
+          replyError("Bluetooth scan failed: $e")
+        }
+      })
+    } catch (e: Exception) {
+      replyError("Bluetooth scan error: $e")
+    }
   }
 
 }

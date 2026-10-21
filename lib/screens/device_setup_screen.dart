@@ -1,4 +1,3 @@
-import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 
 import '../services/device_provisioning_service.dart';
@@ -7,13 +6,28 @@ import '../theme/app_styles.dart';
 
 enum _Step { intro, busy, pickDevice, pickNetwork, success, error }
 
-/// Shown before login / register until the ESP32 has been connected to the
-/// user's home Wi-Fi through the app.
+/// Connects the ESP32 to the user's home Wi-Fi over Bluetooth.
+///
+/// Used in three places:
+///  - right after login/register (with [onSkip] so the user can skip it)
+///  - from Settings
+///  - from the main-menu banner
 class DeviceSetupScreen extends StatefulWidget {
-  const DeviceSetupScreen({super.key, required this.onComplete});
+  const DeviceSetupScreen({
+    super.key,
+    required this.onComplete,
+    this.onSkip,
+    this.showBackButton = false,
+  });
 
   /// Called when the ESP32 is online and the user taps "Continue".
   final VoidCallback onComplete;
+
+  /// If set, a "Skip for now" button is shown.
+  final VoidCallback? onSkip;
+
+  /// Show a back arrow (when the screen was opened from Settings / banner).
+  final bool showBackButton;
 
   @override
   State<DeviceSetupScreen> createState() => _DeviceSetupScreenState();
@@ -65,13 +79,10 @@ class _DeviceSetupScreenState extends State<DeviceSetupScreen> {
   Future<void> _startSearch() async {
     _showBusy('Looking for your PurrClean…');
 
-    final allowed = await _service.ensurePermissions();
-    if (!allowed) {
-      _showError(
-        'PurrClean needs Bluetooth permission to find your device. '
-        'Please allow it in your phone settings and try again.',
-        _startSearch,
-      );
+    final problem = await _service.checkAccess();
+    if (!mounted) return;
+    if (problem != null) {
+      _showError(problem, _startSearch);
       return;
     }
 
@@ -94,8 +105,8 @@ class _DeviceSetupScreenState extends State<DeviceSetupScreen> {
       }
     } catch (_) {
       _showError(
-        'Something went wrong while searching. Check that Bluetooth is turned '
-        'on and try again.',
+        'Something went wrong while searching. Check that Bluetooth AND '
+        'Location are turned on in your phone, then try again.',
         _startSearch,
       );
     }
@@ -192,62 +203,40 @@ class _DeviceSetupScreenState extends State<DeviceSetupScreen> {
   @override
   Widget build(BuildContext context) {
     return Scaffold(
-      body: Stack(
-        children: [
-          SafeArea(
-            child: SingleChildScrollView(
-              padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 24),
-              child: Container(
-                decoration: BoxDecoration(
-                  color: Colors.white,
-                  borderRadius: AppDecorations.cardRadius,
-                  boxShadow: AppDecorations.cardShadow,
-                ),
-                child: Column(
-                  children: [
-                    _buildHeader(),
-                    Padding(
-                      padding: const EdgeInsets.all(24),
-                      child: AnimatedSwitcher(
-                        duration: const Duration(milliseconds: 250),
-                        child: KeyedSubtree(
-                          key: ValueKey(_step),
-                          child: _buildStep(),
-                        ),
-                      ),
-                    ),
-                  ],
-                ),
-              ),
+      appBar: widget.showBackButton
+          ? AppBar(
+              backgroundColor: Colors.transparent,
+              elevation: 0,
+              scrolledUnderElevation: 0,
+              foregroundColor: AppColors.textDark,
+            )
+          : null,
+      body: SafeArea(
+        child: SingleChildScrollView(
+          padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 24),
+          child: Container(
+            decoration: BoxDecoration(
+              color: Colors.white,
+              borderRadius: AppDecorations.cardRadius,
+              boxShadow: AppDecorations.cardShadow,
             ),
-          ),
-
-          // DEV ONLY: skip button, shown only in debug builds.
-          if (kDebugMode)
-            Positioned(
-              left: 16,
-              bottom: -8,
-              child: GestureDetector(
-                behavior: HitTestBehavior.opaque,
-                onLongPress: () {
-                  DeviceProvisioningService.devSkipSetup = true;
-                  widget.onComplete();
-                },
-                child: Opacity(
-                  opacity: 0.25,
-                  child: Container(
-                    width: 72,
-                    height: 72,
-                    decoration: const BoxDecoration(
-                      color: Colors.black12,
-                      shape: BoxShape.circle,
+            child: Column(
+              children: [
+                _buildHeader(),
+                Padding(
+                  padding: const EdgeInsets.all(24),
+                  child: AnimatedSwitcher(
+                    duration: const Duration(milliseconds: 250),
+                    child: KeyedSubtree(
+                      key: ValueKey(_step),
+                      child: _buildStep(),
                     ),
-                    child: const Icon(Icons.bug_report, size: 36),
                   ),
                 ),
-              ),
+              ],
             ),
-        ],
+          ),
+        ),
       ),
     );
   }
@@ -296,6 +285,16 @@ class _DeviceSetupScreenState extends State<DeviceSetupScreen> {
     }
   }
 
+  /// "Skip for now" button, only when the screen was given an onSkip.
+  Widget _skipButton() {
+    final onSkip = widget.onSkip;
+    if (onSkip == null) return const SizedBox.shrink();
+    return TextButton(
+      onPressed: onSkip,
+      child: const Text('Skip for now'),
+    );
+  }
+
   Widget _buildIntro() {
     return Column(
       children: [
@@ -308,16 +307,17 @@ class _DeviceSetupScreenState extends State<DeviceSetupScreen> {
         ),
         const SizedBox(height: 12),
         const Text(
-          'Before you sign in, your PurrClean litter box needs to be connected '
-          'to your home Wi-Fi.\n\n'
+          'Your PurrClean litter box needs to be connected to your home Wi-Fi '
+          'so it can send its data to the app.\n\n'
           '1. Plug in your PurrClean.\n'
-          '2. Turn on Bluetooth on your phone.\n'
+          '2. Turn on Bluetooth and Location on your phone.\n'
           '3. Keep your phone close to the device.',
           style: TextStyle(fontSize: 15, color: AppColors.textDark, height: 1.4),
         ),
         const SizedBox(height: 24),
         _primaryButton('Find my PurrClean', _startSearch),
         TextButton(onPressed: _showHelp, child: const Text('Need help?')),
+        _skipButton(),
       ],
     );
   }
@@ -465,8 +465,7 @@ class _DeviceSetupScreenState extends State<DeviceSetupScreen> {
         ),
         const SizedBox(height: 8),
         const Text(
-          'It is now connected to your home Wi-Fi. Next, sign in or create '
-          'your account.',
+          'It is now connected to your home Wi-Fi.',
           textAlign: TextAlign.center,
           style: TextStyle(fontSize: 15, color: AppColors.textDark),
         ),
@@ -490,6 +489,7 @@ class _DeviceSetupScreenState extends State<DeviceSetupScreen> {
         const SizedBox(height: 24),
         _primaryButton('Try again', () => _retry?.call()),
         TextButton(onPressed: _showHelp, child: const Text('Need help?')),
+        _skipButton(),
       ],
     );
   }

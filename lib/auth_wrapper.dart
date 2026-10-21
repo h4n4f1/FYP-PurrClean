@@ -1,15 +1,20 @@
-import 'dart:async';
-
-import 'package:flutter/material.dart';
+import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:firebase_auth/firebase_auth.dart';
-import 'package:shared_preferences/shared_preferences.dart';
+import 'package:flutter/material.dart';
 
+import 'add_cat_page.dart';
 import 'screens/auth_screen.dart';
 import 'screens/device_setup_screen.dart';
 import 'screens/main_shell.dart';
 import 'services/auth_service.dart';
 import 'services/device_provisioning_service.dart';
+import 'theme/app_styles.dart';
 
+/// Decides which screen to show:
+///   not logged in            -> AuthScreen (login / register)
+///   logged in                -> device Wi-Fi setup (skippable)
+///                            -> cat setup (only if the user has no cat yet)
+///                            -> main menu
 class AuthWrapper extends StatefulWidget {
   const AuthWrapper({super.key});
 
@@ -18,89 +23,101 @@ class AuthWrapper extends StatefulWidget {
 }
 
 class _AuthWrapperState extends State<AuthWrapper> {
-  static const _sessionTimeout = Duration(days: 90);
-  User? _user;
-  bool _isCheckingSession = true;
-
-  /// Whether the ESP32 has already been connected to the home Wi-Fi from this
-  /// phone. null = still loading.
-  bool? _deviceReady;
-  late final StreamSubscription<User?> _authSubscription;
-
   final _authService = FirebaseAuthService();
+  late final Stream<User?> _authStream = _authService.authStateChanges;
+
+  @override
+  Widget build(BuildContext context) {
+    return StreamBuilder<User?>(
+      stream: _authStream,
+      builder: (context, snapshot) {
+        if (snapshot.connectionState == ConnectionState.waiting) {
+          return const _LoadingScreen();
+        }
+        final user = snapshot.data;
+        if (user == null) return const AuthScreen();
+        return _PostLoginGate(key: ValueKey(user.uid), userId: user.uid);
+      },
+    );
+  }
+}
+
+class _PostLoginGate extends StatefulWidget {
+  const _PostLoginGate({super.key, required this.userId});
+
+  final String userId;
+
+  @override
+  State<_PostLoginGate> createState() => _PostLoginGateState();
+}
+
+class _PostLoginGateState extends State<_PostLoginGate> {
+  /// null = still loading
+  bool? _deviceStepDone;
+
+  late final Stream<QuerySnapshot<Map<String, dynamic>>> _catStream =
+      FirebaseFirestore.instance
+          .collection('cats')
+          .where('user_id', isEqualTo: widget.userId)
+          .limit(1)
+          .snapshots();
 
   @override
   void initState() {
     super.initState();
-    _loadDeviceState();
-    _authSubscription = _authService.authStateChanges.listen(_handleAuthStateChanged);
+    _loadDeviceStep();
   }
 
-  Future<void> _loadDeviceState() async {
-    final ready = await DeviceProvisioningService.instance.isProvisioned();
+  Future<void> _loadDeviceStep() async {
+    final service = DeviceProvisioningService.instance;
+    final done = await service.isProvisioned() ||
+        await service.isSetupStepDone(widget.userId);
     if (!mounted) return;
-    setState(() => _deviceReady = ready);
+    setState(() => _deviceStepDone = done);
   }
 
-  @override
-  void dispose() {
-    _authSubscription.cancel();
-    super.dispose();
-  }
-
-  Future<void> _handleAuthStateChanged(User? user) async {
-    if (user == null) {
-      if (!mounted) return;
-      setState(() {
-        _user = null;
-        _isCheckingSession = false;
-      });
-      return;
-    }
-
-    setState(() => _isCheckingSession = true);
-    final sessionIsValid = await _checkSession(user);
+  /// Called when the device was connected OR the user tapped "Skip for now".
+  Future<void> _finishDeviceStep() async {
+    await DeviceProvisioningService.instance.markSetupStepDone(widget.userId);
     if (!mounted) return;
-    setState(() {
-      _user = sessionIsValid ? user : null;
-      _isCheckingSession = false;
-    });
-  }
-
-  Future<bool> _checkSession(User user) async {
-    final preferences = await SharedPreferences.getInstance();
-    final key = 'last_opened_${user.uid}';
-    final lastOpenedValue = preferences.getString(key);
-    final now = DateTime.now();
-
-    if (lastOpenedValue != null) {
-      final lastOpened = DateTime.tryParse(lastOpenedValue);
-      if (lastOpened != null && now.difference(lastOpened) >= _sessionTimeout) {
-        await _authService.signOut();
-        return false;
-      }
-    }
-
-    await preferences.setString(key, now.toIso8601String());
-    return true;
+    setState(() => _deviceStepDone = true);
   }
 
   @override
   Widget build(BuildContext context) {
-    if (_isCheckingSession || _deviceReady == null) {
-      return const Scaffold(
-        body: Center(child: CircularProgressIndicator()),
-      );
-    }
-    if (_user != null) return const MainShell();
+    final deviceStepDone = _deviceStepDone;
+    if (deviceStepDone == null) return const _LoadingScreen();
 
-    // Not signed in: the ESP32 must be on the home Wi-Fi before the user can
-    // log in or register.
-    if (_deviceReady == false) {
+    // Step 1: connect the ESP32 to Wi-Fi (can be skipped).
+    if (!deviceStepDone) {
       return DeviceSetupScreen(
-        onComplete: () => setState(() => _deviceReady = true),
+        onComplete: _finishDeviceStep,
+        onSkip: _finishDeviceStep,
       );
     }
-    return const AuthScreen();
+
+    // Step 2: cat setup if the user has no cat yet. Step 3: main menu.
+    return StreamBuilder<QuerySnapshot<Map<String, dynamic>>>(
+      stream: _catStream,
+      builder: (context, snapshot) {
+        if (snapshot.hasError) return const MainShell(); // never trap the user
+        if (!snapshot.hasData) return const _LoadingScreen();
+        if (snapshot.data!.docs.isEmpty) {
+          return AddCatPage(userId: widget.userId);
+        }
+        return const MainShell();
+      },
+    );
+  }
+}
+
+class _LoadingScreen extends StatelessWidget {
+  const _LoadingScreen();
+
+  @override
+  Widget build(BuildContext context) {
+    return const Scaffold(
+      body: Center(child: CircularProgressIndicator(color: AppColors.primary)),
+    );
   }
 }
