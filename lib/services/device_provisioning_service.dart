@@ -22,6 +22,10 @@ class DeviceProvisioningService {
   /// Proof-of-possession string the ESP32 expects (Security 1).
   static const String proofOfPossession = 'purrclean-pop';
 
+  /// Dev only: set by the hidden button on the setup screen. Lasts until the
+  /// app process is closed.
+  static bool devSkipSetup = false;
+
   static const String _provisionedKey = 'device_wifi_provisioned';
   static const String _deviceNameKey = 'device_ble_name';
 
@@ -42,7 +46,29 @@ class DeviceProvisioningService {
     await prefs.setString(_deviceNameKey, deviceName);
   }
 
-  /// Forget the device (e.g. when the user wants to set up a different one).
+  /// BLE name of the device that was set up from this phone (or null).
+  Future<String?> savedDeviceName() async {
+    final prefs = await SharedPreferences.getInstance();
+    return prefs.getString(_deviceNameKey);
+  }
+
+  /// Marks the device as needing setup again, but REMEMBERS which device it
+  /// was so the app keeps watching it until setup is finished.
+  Future<void> markNeedsSetup() async {
+    final prefs = await SharedPreferences.getInstance();
+    await prefs.setBool(_provisionedKey, false);
+  }
+
+  /// True when a device was set up before, its Wi-Fi has since been reset,
+  /// and setup has not been completed again.
+  Future<bool> needsSetup() async {
+    final prefs = await SharedPreferences.getInstance();
+    return prefs.getString(_deviceNameKey) != null &&
+        !(prefs.getBool(_provisionedKey) ?? false);
+  }
+
+  /// Forget the device completely (e.g. when the user wants to set up a
+  /// different one).
   Future<void> clearProvisioned() async {
     final prefs = await SharedPreferences.getInstance();
     await prefs.remove(_provisionedKey);

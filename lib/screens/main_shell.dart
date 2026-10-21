@@ -1,8 +1,17 @@
+import 'dart:async';
+
+import 'package:firebase_database/firebase_database.dart';
 import 'package:flutter/material.dart';
+import '../services/device_provisioning_service.dart';
+import '../services/device_status_service.dart';
 import '../theme/app_styles.dart';
 import 'analytics_screen.dart';
+import 'device_setup_screen.dart';
 import 'home_screen.dart';
 import 'profile_screen.dart';
+
+/// Dev only: run with --dart-define=SKIP_DEVICE_SETUP=true to skip device setup.
+const bool _skipDeviceSetup = bool.fromEnvironment('SKIP_DEVICE_SETUP');
 
 class MainShell extends StatefulWidget {
   const MainShell({super.key});
@@ -18,6 +27,64 @@ class _MainShellState extends State<MainShell> {
 
   int _index = _homeTab;
   int _homeRefreshTick = 0;
+
+  StreamSubscription<DatabaseEvent>? _resetSub;
+  bool _setupOpen = false;
+
+  @override
+  void initState() {
+    super.initState();
+    _startWatching();
+    _checkUnfinishedSetup();
+  }
+
+  /// Listens for the ESP32 reporting that its Wi-Fi was reset (BOOT button).
+  Future<void> _startWatching() async {
+    if (_skipDeviceSetup) return;
+    await _resetSub?.cancel();
+    _resetSub = await DeviceStatusService.instance.watchReset(_onDeviceReset);
+  }
+
+  /// If setup was started last time but never finished, ask again
+  /// (also works when the phone is offline).
+  Future<void> _checkUnfinishedSetup() async {
+    if (_skipDeviceSetup) return;
+    if (await DeviceProvisioningService.instance.needsSetup()) {
+      _onDeviceReset();
+    }
+  }
+
+  Future<void> _onDeviceReset() async {
+    if (_setupOpen || !mounted || DeviceProvisioningService.devSkipSetup) {
+      return;
+    }
+    _setupOpen = true;
+
+    // Keep the device name; only mark it as "needs setup".
+    await DeviceProvisioningService.instance.markNeedsSetup();
+    if (!mounted) {
+      _setupOpen = false;
+      return;
+    }
+
+    await Navigator.of(context).push(MaterialPageRoute(
+      builder: (ctx) =>
+          DeviceSetupScreen(onComplete: () => Navigator.of(ctx).pop()),
+    ));
+    _setupOpen = false;
+
+    // If setup finished, watch the (possibly new) device. If the user backed
+    // out, do nothing: they will be asked again next time the app opens.
+    if (mounted && await DeviceProvisioningService.instance.isProvisioned()) {
+      _startWatching();
+    }
+  }
+
+  @override
+  void dispose() {
+    _resetSub?.cancel();
+    super.dispose();
+  }
 
   void _onTap(int index) {
     if (index == _index) return;

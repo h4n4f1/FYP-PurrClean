@@ -1,6 +1,8 @@
+import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 
 import '../services/device_provisioning_service.dart';
+import '../services/device_status_service.dart';
 import '../theme/app_styles.dart';
 
 enum _Step { intro, busy, pickDevice, pickNetwork, success, error }
@@ -144,6 +146,7 @@ class _DeviceSetupScreenState extends State<DeviceSetupScreen> {
       if (!mounted) return;
       if (ok) {
         await _service.markProvisioned(device);
+        await DeviceStatusService.instance.setProvisioned(device, true);
         if (!mounted) return;
         setState(() => _step = _Step.success);
       } else {
@@ -189,32 +192,62 @@ class _DeviceSetupScreenState extends State<DeviceSetupScreen> {
   @override
   Widget build(BuildContext context) {
     return Scaffold(
-      body: SafeArea(
-        child: SingleChildScrollView(
-          padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 24),
-          child: Container(
-            decoration: BoxDecoration(
-              color: Colors.white,
-              borderRadius: AppDecorations.cardRadius,
-              boxShadow: AppDecorations.cardShadow,
-            ),
-            child: Column(
-              children: [
-                _buildHeader(),
-                Padding(
-                  padding: const EdgeInsets.all(24),
-                  child: AnimatedSwitcher(
-                    duration: const Duration(milliseconds: 250),
-                    child: KeyedSubtree(
-                      key: ValueKey(_step),
-                      child: _buildStep(),
-                    ),
-                  ),
+      body: Stack(
+        children: [
+          SafeArea(
+            child: SingleChildScrollView(
+              padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 24),
+              child: Container(
+                decoration: BoxDecoration(
+                  color: Colors.white,
+                  borderRadius: AppDecorations.cardRadius,
+                  boxShadow: AppDecorations.cardShadow,
                 ),
-              ],
+                child: Column(
+                  children: [
+                    _buildHeader(),
+                    Padding(
+                      padding: const EdgeInsets.all(24),
+                      child: AnimatedSwitcher(
+                        duration: const Duration(milliseconds: 250),
+                        child: KeyedSubtree(
+                          key: ValueKey(_step),
+                          child: _buildStep(),
+                        ),
+                      ),
+                    ),
+                  ],
+                ),
+              ),
             ),
           ),
-        ),
+
+          // DEV ONLY: skip button, shown only in debug builds.
+          if (kDebugMode)
+            Positioned(
+              left: 16,
+              bottom: -8,
+              child: GestureDetector(
+                behavior: HitTestBehavior.opaque,
+                onLongPress: () {
+                  DeviceProvisioningService.devSkipSetup = true;
+                  widget.onComplete();
+                },
+                child: Opacity(
+                  opacity: 0.25,
+                  child: Container(
+                    width: 72,
+                    height: 72,
+                    decoration: const BoxDecoration(
+                      color: Colors.black12,
+                      shape: BoxShape.circle,
+                    ),
+                    child: const Icon(Icons.bug_report, size: 36),
+                  ),
+                ),
+              ),
+            ),
+        ],
       ),
     );
   }
