@@ -1,5 +1,10 @@
 import 'package:flutter/material.dart';
 import 'package:fl_chart/fl_chart.dart';
+<<<<<<< Updated upstream
+=======
+import 'package:firebase_database/firebase_database.dart';
+import '../services/sensor_service.dart';
+>>>>>>> Stashed changes
 
 enum AnalyticsPeriod { daily, weekly, monthly }
 
@@ -20,13 +25,20 @@ class BehavioralInsight {
 }
 
 class AnalyticsScreen extends StatefulWidget {
+<<<<<<< Updated upstream
   const AnalyticsScreen({super.key});
+=======
+  final String deviceId;
+
+  const AnalyticsScreen({Key? key, this.deviceId = "308C"}) : super(key: key);
+>>>>>>> Stashed changes
 
   @override
   State<AnalyticsScreen> createState() => _AnalyticsScreenState();
 }
 
 class _AnalyticsScreenState extends State<AnalyticsScreen> {
+  final SensorService _sensorService = SensorService();
   AnalyticsPeriod _selectedPeriod = AnalyticsPeriod.daily;
 
   // Mock Summary Stats
@@ -51,36 +63,104 @@ class _AnalyticsScreenState extends State<AnalyticsScreen> {
     ),
   ];
 
-  // Mock Spot Data for Charts
-  final List<FlSpot> visitFrequencyData = const [
-    FlSpot(0, 0),
-    FlSpot(4, 1),
-    FlSpot(8, 2.5),
-    FlSpot(12, 1.2),
-    FlSpot(16, 2.8),
-    FlSpot(20, 1.0),
-    FlSpot(24, 0.2),
-  ];
+  // Function to show PurrClean Alert & Notification Info Dialog
+  void _showInfoDialog(BuildContext context) {
+    showDialog(
+      context: context,
+      builder: (BuildContext context) {
+        return AlertDialog(
+          shape: RoundedRectangleBorder(
+            borderRadius: BorderRadius.circular(20),
+          ),
+          title: Row(
+            children: const [
+              Icon(Icons.info_outline, color: Colors.orange),
+              SizedBox(width: 8),
+              Text(
+                "System Guide & Triggers",
+                style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold),
+              ),
+            ],
+          ),
+          content: SingleChildScrollView(
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                _buildInfoSection(
+                  icon: Icons.notifications_active,
+                  iconColor: Colors.blue,
+                  title: "Push Notifications",
+                  description:
+                      "Triggered whenever your cat finishes a visit to the litter box or when maintenance is complete.",
+                ),
+                const Divider(),
+                _buildInfoSection(
+                  icon: Icons.warning_amber_rounded,
+                  iconColor: Colors.amber,
+                  title: "Warning Alerts",
+                  description:
+                      "Triggered when gas levels exceed optimal thresholds or when a visit lasts unusually long (> 10 mins).",
+                ),
+                const Divider(),
+                _buildInfoSection(
+                  icon: Icons.cleaning_services,
+                  iconColor: Colors.green,
+                  title: "Maintenance Alerts",
+                  description:
+                      "Triggered when the waste drawer weight reaches full capacity or when litter levels are low.",
+                ),
+              ],
+            ),
+          ),
+          actions: [
+            TextButton(
+              onPressed: () => Navigator.of(context).pop(),
+              child: const Text(
+                "Got it",
+                style: TextStyle(color: Colors.orange, fontWeight: FontWeight.bold),
+              ),
+            ),
+          ],
+        );
+      },
+    );
+  }
 
-  final List<FlSpot> visitDurationData = const [
-    FlSpot(0, 0),
-    FlSpot(4, 2.0),
-    FlSpot(8, 5.5),
-    FlSpot(12, 3.2),
-    FlSpot(16, 6.0),
-    FlSpot(20, 4.1),
-    FlSpot(24, 1.5),
-  ];
-
-  final List<FlSpot> wasteAccumulationData = const [
-    FlSpot(0, 0),
-    FlSpot(4, 25),
-    FlSpot(8, 80),
-    FlSpot(12, 115),
-    FlSpot(16, 160),
-    FlSpot(20, 205),
-    FlSpot(24, 215),
-  ];
+  // Helper widget for dialog sections
+  Widget _buildInfoSection({
+    required IconData icon,
+    required Color iconColor,
+    required String title,
+    required String description,
+  }) {
+    return Padding(
+      padding: const EdgeInsets.symmetric(vertical: 6.0),
+      child: Row(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Icon(icon, color: iconColor, size: 22),
+          const SizedBox(width: 10),
+          Expanded(
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Text(
+                  title,
+                  style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 14),
+                ),
+                const SizedBox(height: 2),
+                Text(
+                  description,
+                  style: const TextStyle(color: Colors.black87, fontSize: 12),
+                ),
+              ],
+            ),
+          ),
+        ],
+      ),
+    );
+  }
 
   Widget _buildPeriodToggle() {
     return Container(
@@ -142,8 +222,8 @@ class _AnalyticsScreenState extends State<AnalyticsScreen> {
                   getDrawingHorizontalLine: (value) => FlLine(color: Colors.grey.shade200, strokeWidth: 1),
                 ),
                 titlesData: FlTitlesData(
-                  topTitles: AxisTitles(sideTitles: SideTitles(showTitles: false)),
-                  rightTitles: AxisTitles(sideTitles: SideTitles(showTitles: false)),
+                  topTitles: const AxisTitles(sideTitles: SideTitles(showTitles: false)),
+                  rightTitles: const AxisTitles(sideTitles: SideTitles(showTitles: false)),
                   bottomTitles: AxisTitles(
                     sideTitles: SideTitles(
                       showTitles: true,
@@ -170,7 +250,7 @@ class _AnalyticsScreenState extends State<AnalyticsScreen> {
                     color: Colors.orange,
                     barWidth: 3,
                     isStrokeCapRound: true,
-                    dotData: FlDotData(show: false),
+                    dotData: const FlDotData(show: false),
                     belowBarData: BarAreaData(
                       show: true,
                       color: Colors.orange.withValues(alpha: 0.15),
@@ -193,18 +273,63 @@ class _AnalyticsScreenState extends State<AnalyticsScreen> {
         title: const Text("Behavioral Analytics"),
         backgroundColor: Colors.orange,
         elevation: 0,
+        actions: [
+          IconButton(
+            icon: const Icon(Icons.help_outline, color: Colors.white),
+            tooltip: "System Info",
+            onPressed: () => _showInfoDialog(context),
+          ),
+        ],
       ),
       body: SingleChildScrollView(
         child: Column(
           children: [
             _buildPeriodToggle(),
             
-            // Charts
-            _buildLineChart("Visit Frequency", visitFrequencyData, 3.0),
-            _buildLineChart("Visit Duration (min)", visitDurationData, 8.0),
-            _buildLineChart("Waste Accumulation (grams)", wasteAccumulationData, 250.0),
+            // Live Firebase Data Connection
+            StreamBuilder<DatabaseEvent>(
+              stream: _sensorService.getVisitStream(widget.deviceId),
+              builder: (context, snapshot) {
+                if (snapshot.connectionState == ConnectionState.waiting) {
+                  return Container(
+                    height: 200,
+                    margin: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
+                    decoration: BoxDecoration(
+                      color: Colors.white,
+                      borderRadius: BorderRadius.circular(20),
+                    ),
+                    child: const Center(child: CircularProgressIndicator(color: Colors.orange)),
+                  );
+                }
 
-            // Behavioral Insights Card
+                List<FlSpot> liveSpots = [];
+
+                if (snapshot.hasData && snapshot.data?.snapshot.value != null) {
+                  liveSpots = _sensorService.parseSensorDataToSpots(snapshot.data!.snapshot);
+                }
+
+                // Fallback baseline zero spots if no database records exist
+                if (liveSpots.isEmpty) {
+                  liveSpots = const [
+                    FlSpot(0, 0),
+                    FlSpot(4, 0),
+                    FlSpot(8, 0),
+                    FlSpot(12, 0),
+                    FlSpot(16, 0),
+                    FlSpot(20, 0),
+                    FlSpot(24, 0),
+                  ];
+                }
+
+                return Column(
+                  children: [
+                    _buildLineChart("Visit Duration (min)", liveSpots, 10.0),
+                  ],
+                );
+              },
+            ),
+
+            // Behavioral Insights Section
             Container(
               margin: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
               padding: const EdgeInsets.all(16),

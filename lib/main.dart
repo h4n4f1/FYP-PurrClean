@@ -17,12 +17,23 @@ Future<void> _firebaseMessagingBackgroundHandler(RemoteMessage message) async {
 
 Future<void> main() async {
   WidgetsFlutterBinding.ensureInitialized();
+<<<<<<< Updated upstream
 
   // Start Firebase and warm up local storage at the same time.
   await Future.wait([
     Firebase.initializeApp(options: DefaultFirebaseOptions.currentPlatform),
     SharedPreferences.getInstance(),
   ]);
+=======
+  
+  // 1. Initialize Firebase
+  await Firebase.initializeApp(
+    options: DefaultFirebaseOptions.currentPlatform,
+  );
+  
+  // ADDED: Confirmation print statement
+  print('🔥 Firebase core successfully initialized in main.dart!');
+>>>>>>> Stashed changes
 
   FirebaseMessaging.onBackgroundMessage(_firebaseMessagingBackgroundHandler);
   runApp(const MyApp());

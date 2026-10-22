@@ -57,6 +57,7 @@ class DefaultFirebaseOptions {
     authDomain: 'purrclean-124.firebaseapp.com',
     storageBucket: 'purrclean-124.firebasestorage.app',
     measurementId: 'G-YZCB25GV98',
+    databaseURL: 'https://purrclean-124-default-rtdb.asia-southeast1.firebasedatabase.app', // <-- ADDED HERE
   );
 
   static const FirebaseOptions android = FirebaseOptions(
@@ -65,5 +66,6 @@ class DefaultFirebaseOptions {
     messagingSenderId: '1019192960498',
     projectId: 'purrclean-124',
     storageBucket: 'purrclean-124.firebasestorage.app',
+    databaseURL: 'https://purrclean-124-default-rtdb.asia-southeast1.firebasedatabase.app', // <-- ADDED HERE
   );
 }
