@@ -1,3 +1,5 @@
+import 'dart:async';
+
 import 'package:flutter/material.dart';
 
 import '../services/device_provisioning_service.dart';
@@ -10,7 +12,7 @@ enum _Step { intro, busy, pickDevice, pickNetwork, success, error }
 ///
 /// Used in three places:
 ///  - right after login/register (with [onSkip] so the user can skip it)
-///  - from Settings
+///  - from Settings (also used to SWITCH to a different Wi-Fi)
 ///  - from the main-menu banner
 class DeviceSetupScreen extends StatefulWidget {
   const DeviceSetupScreen({
@@ -49,6 +51,21 @@ class _DeviceSetupScreenState extends State<DeviceSetupScreen> {
   String? _selectedSsid;
   bool _enterManually = false;
   bool _hidePassword = true;
+
+  /// BLE name of a device that was already set up from this phone (or null).
+  String? _savedDevice;
+
+  @override
+  void initState() {
+    super.initState();
+    _loadSavedDevice();
+  }
+
+  Future<void> _loadSavedDevice() async {
+    final saved = await _service.savedDeviceName();
+    if (!mounted) return;
+    setState(() => _savedDevice = saved);
+  }
 
   @override
   void dispose() {
@@ -112,6 +129,55 @@ class _DeviceSetupScreenState extends State<DeviceSetupScreen> {
     }
   }
 
+  /// Switch to a different Wi-Fi: ask the (online) PurrClean to forget its
+  /// current Wi-Fi, wait for it to restart in setup mode, then run the normal
+  /// search + Wi-Fi pick flow.
+  Future<void> _switchWifi() async {
+    final saved = _savedDevice;
+    if (saved == null) {
+      _startSearch();
+      return;
+    }
+    final status = DeviceStatusService.instance;
+
+    _showBusy('Telling your PurrClean to forget its old Wi-Fi…\n'
+        'This can take up to 40 seconds.');
+
+    final sent = await status.requestWifiReset(saved);
+    if (!mounted) return;
+    if (!sent) {
+      _showError(
+        'Couldn\'t reach PurrClean\'s cloud. Check your phone\'s internet '
+        'connection and try again.\n\n'
+        'If your old Wi-Fi is no longer available, just wait about 3 '
+        'minutes: your PurrClean opens setup mode by itself. Then tap '
+        '"Try again" below.',
+        _startSearch,
+      );
+      return;
+    }
+
+    final acked = await status.waitForWifiResetAck(saved);
+    if (!mounted) return;
+    if (!acked) {
+      await status.cancelWifiReset(saved);
+      if (!mounted) return;
+      _showError(
+        'Your PurrClean didn\'t answer. It is probably offline (for example '
+        'because the old Wi-Fi was turned off).\n\n'
+        'If its Wi-Fi changed, wait about 3 minutes: it opens setup mode by '
+        'itself when it can\'t find its Wi-Fi. Then tap "Try again". ',
+        _startSearch,
+      );
+      return;
+    }
+
+    _showBusy('Your PurrClean is restarting in setup mode…');
+    await Future<void>.delayed(const Duration(seconds: 6));
+    if (!mounted) return;
+    _startSearch();
+  }
+
   Future<void> _selectDevice(String device) async {
     _device = device;
     _showBusy('Checking which Wi-Fi networks your PurrClean can see…');
@@ -146,34 +212,77 @@ class _DeviceSetupScreenState extends State<DeviceSetupScreen> {
     if (device == null) return;
 
     FocusScope.of(context).unfocus();
-    _showBusy('Connecting your PurrClean to "$ssid"…\nThis can take up to 30 seconds.');
+    _showBusy('Connecting your PurrClean to "$ssid"…\nThis can take up to a minute.');
 
+    bool ok;
     try {
-      final ok = await _service.provision(
-        deviceName: device,
+      ok = await _provisionAndConfirm(
+        device: device,
         ssid: ssid,
         password: _passwordController.text,
       );
-      if (!mounted) return;
-      if (ok) {
-        await _service.markProvisioned(device);
-        await DeviceStatusService.instance.setProvisioned(device, true);
-        if (!mounted) return;
-        setState(() => _step = _Step.success);
-      } else {
-        _showError(
-          'Your PurrClean couldn\'t join "$ssid". Check the password, and '
-          'make sure it is a 2.4 GHz network (5 GHz is not supported).',
-          () => setState(() => _step = _Step.pickNetwork),
-        );
-      }
     } catch (_) {
+      ok = false;
+    }
+    if (!mounted) return;
+
+    if (ok) {
+      await _service.markProvisioned(device);
+      // Don't wait for this one: it only updates the cloud status.
+      DeviceStatusService.instance.setProvisioned(device, true);
+      if (!mounted) return;
+      setState(() => _step = _Step.success);
+    } else {
       _showError(
         'Your PurrClean couldn\'t join "$ssid". Check the password, and '
         'make sure it is a 2.4 GHz network (5 GHz is not supported).',
         () => setState(() => _step = _Step.pickNetwork),
       );
     }
+  }
+
+  /// Sends the Wi-Fi details over Bluetooth, then confirms the result in two
+  /// ways, because the Bluetooth answer can get lost when the ESP32 drops the
+  /// Bluetooth link right after it joins the Wi-Fi:
+  ///  1. the Bluetooth result from the plugin, and
+  ///  2. the ESP32 setting devices/<id>/provisioned = true in Firebase as
+  ///     soon as it is online.
+  /// Whichever reports success first wins. Never waits more than 75 seconds.
+  Future<bool> _provisionAndConfirm({
+    required String device,
+    required String ssid,
+    required String password,
+  }) async {
+    final status = DeviceStatusService.instance;
+    final done = Completer<bool>();
+    void finish(bool ok) {
+      if (!done.isCompleted) done.complete(ok);
+    }
+
+    // Reset the flag so we can tell when the ESP32 sets it back to true.
+    await status.setProvisioned(device, false);
+
+    const limit = Duration(seconds: 75);
+
+    status.waitForProvisioned(device, timeout: limit).then((ok) {
+      if (ok) finish(true);
+    });
+
+    _service
+        .provision(deviceName: device, ssid: ssid, password: password)
+        .then((ok) {
+      if (ok) {
+        finish(true);
+      } else {
+        // Give the cloud check a moment to prove it actually worked.
+        Future<void>.delayed(const Duration(seconds: 10), () => finish(false));
+      }
+    }).catchError((Object _) {
+      Future<void>.delayed(const Duration(seconds: 10), () => finish(false));
+    });
+
+    Future<void>.delayed(limit, () => finish(false));
+    return done.future;
   }
 
   void _showHelp() {
@@ -296,6 +405,7 @@ class _DeviceSetupScreenState extends State<DeviceSetupScreen> {
   }
 
   Widget _buildIntro() {
+    if (_savedDevice != null) return _buildSwitchIntro();
     return Column(
       children: [
         const Icon(Icons.wifi_rounded, size: 56, color: AppColors.primary),
@@ -316,6 +426,43 @@ class _DeviceSetupScreenState extends State<DeviceSetupScreen> {
         ),
         const SizedBox(height: 24),
         _primaryButton('Find my PurrClean', _startSearch),
+        TextButton(onPressed: _showHelp, child: const Text('Need help?')),
+        _skipButton(),
+      ],
+    );
+  }
+
+  /// Intro shown when this phone has already set up a PurrClean: lets the
+  /// user move it to a different Wi-Fi network.
+  Widget _buildSwitchIntro() {
+    return Column(
+      children: [
+        const Icon(Icons.swap_horiz_rounded,
+            size: 56, color: AppColors.primary),
+        const SizedBox(height: 16),
+        const Text(
+          'Switch to a different Wi-Fi',
+          textAlign: TextAlign.center,
+          style: AppTextStyles.cardTitle,
+        ),
+        const SizedBox(height: 12),
+        const Text(
+          'Your PurrClean is already set up. To move it to another Wi-Fi '
+          'network (for example a new router):\n\n'
+          '1. Keep your phone close to the device.\n'
+          '2. Turn on Bluetooth and Location on your phone.\n'
+          '3. Tap "Switch Wi-Fi" and follow the steps.\n\n'
+          'If the old Wi-Fi is already gone, wait about 3 minutes: your '
+          'PurrClean opens setup mode by itself. Then tap "My PurrClean is '
+          'already reset".',
+          style: TextStyle(fontSize: 15, color: AppColors.textDark, height: 1.4),
+        ),
+        const SizedBox(height: 24),
+        _primaryButton('Switch Wi-Fi', _switchWifi),
+        TextButton(
+          onPressed: _startSearch,
+          child: const Text('My PurrClean is already reset'),
+        ),
         TextButton(onPressed: _showHelp, child: const Text('Need help?')),
         _skipButton(),
       ],

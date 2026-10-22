@@ -1,6 +1,8 @@
 import 'package:flutter/material.dart';
 
 import '../services/auth_service.dart';
+import '../services/device_provisioning_service.dart';
+import '../services/device_status_service.dart';
 import '../services/local_profile_store.dart';
 import '../theme/app_styles.dart';
 import '../widgets/dashboard_card.dart';
@@ -76,6 +78,57 @@ class _SettingsScreenState extends State<SettingsScreen> {
     await LocalProfileStore.saveNotificationPref(_uid, key, value);
   }
 
+  /// Hard-resets the ESP32 (same as holding BOOT for 5 s) and forgets it on
+  /// this phone.
+  Future<void> _removeDevice() async {
+    final name = await DeviceProvisioningService.instance.savedDeviceName();
+    if (!mounted) return;
+    if (name == null) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('No device is set up on this phone.')),
+      );
+      return;
+    }
+
+    final confirm = await showDialog<bool>(
+      context: context,
+      builder: (ctx) => AlertDialog(
+        title: const Text('Remove device?'),
+        content: const Text(
+          'Your PurrClean will forget its Wi-Fi and go back to setup mode. '
+          'You can set it up again at any time.',
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.of(ctx).pop(false),
+            child: const Text('Cancel'),
+          ),
+          TextButton(
+            onPressed: () => Navigator.of(ctx).pop(true),
+            child: const Text('Remove'),
+          ),
+        ],
+      ),
+    );
+    if (confirm != true || !mounted) return;
+
+    final messenger = ScaffoldMessenger.of(context);
+    messenger.showSnackBar(
+      const SnackBar(content: Text('Removing device…')),
+    );
+
+    final acked = await DeviceStatusService.instance.removeDevice(name);
+    messenger.hideCurrentSnackBar();
+    messenger.showSnackBar(
+      SnackBar(
+        content: Text(acked
+            ? 'Device removed. It is back in setup mode.'
+            : 'Device removed. It will reset itself as soon as it is '
+                'back online.'),
+      ),
+    );
+  }
+
   @override
   Widget build(BuildContext context) {
     return Scaffold(
@@ -117,6 +170,16 @@ class _SettingsScreenState extends State<SettingsScreen> {
                   ),
                 ),
               ),
+            ),
+          ),
+          const SizedBox(height: 18),
+          DashboardCard(
+            padding: const EdgeInsets.symmetric(vertical: 8),
+            child: SettingsTile(
+              icon: Icons.link_off_rounded,
+              title: 'Remove Device',
+              subtitle: 'Make your PurrClean forget its Wi-Fi',
+              onTap: _removeDevice,
             ),
           ),
           const SizedBox(height: 18),

@@ -1,3 +1,4 @@
+import 'package:firebase_auth/firebase_auth.dart';
 import 'package:flutter/foundation.dart';
 import 'package:flutter_esp_ble_prov/flutter_esp_ble_prov.dart';
 import 'package:permission_handler/permission_handler.dart';
@@ -8,6 +9,9 @@ import 'package:shared_preferences/shared_preferences.dart';
 /// The phone talks to the ESP32 over BLE, asks it which Wi-Fi networks IT can
 /// see (so only 2.4 GHz networks it can actually join are listed), and then
 /// sends it the home Wi-Fi name + password.
+///
+/// The device that was set up is remembered PER USER, so logging in with a
+/// different account on the same phone does not inherit someone else's device.
 ///
 /// The constants below MUST match the firmware
 /// (firmware/PurrClean_Provisioning/PurrClean_Provisioning.ino).
@@ -22,8 +26,11 @@ class DeviceProvisioningService {
   /// Proof-of-possession string the ESP32 expects (Security 1).
   static const String proofOfPossession = 'purrclean-pop';
 
-  static const String _provisionedKey = 'device_wifi_provisioned';
-  static const String _deviceNameKey = 'device_ble_name';
+  /// uid of the logged-in user ('guest' if nobody is logged in).
+  String get _uid => FirebaseAuth.instance.currentUser?.uid ?? 'guest';
+
+  String get _provisionedKey => 'device_wifi_provisioned_$_uid';
+  String get _deviceNameKey => 'device_ble_name_$_uid';
 
   static String _setupStepKey(String uid) => 'device_setup_step_done_$uid';
 
@@ -32,7 +39,7 @@ class DeviceProvisioningService {
   // ---- persisted state -----------------------------------------------
 
   /// True once the ESP32 has been successfully given the home Wi-Fi details
-  /// from this phone.
+  /// from this phone by the current user.
   Future<bool> isProvisioned() async {
     final prefs = await SharedPreferences.getInstance();
     return prefs.getBool(_provisionedKey) ?? false;
@@ -44,7 +51,7 @@ class DeviceProvisioningService {
     await prefs.setString(_deviceNameKey, deviceName);
   }
 
-  /// BLE name of the device that was set up from this phone (or null).
+  /// BLE name of the device that the current user set up (or null).
   Future<String?> savedDeviceName() async {
     final prefs = await SharedPreferences.getInstance();
     return prefs.getString(_deviceNameKey);

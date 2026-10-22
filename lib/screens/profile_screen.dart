@@ -1,8 +1,11 @@
+import 'dart:convert';
 import 'dart:typed_data';
 
+import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:firebase_auth/firebase_auth.dart';
 import 'package:flutter/material.dart';
 
+import '../add_cat_page.dart';
 import '../services/account_service.dart';
 import '../services/auth_service.dart';
 import '../services/local_profile_store.dart';
@@ -32,10 +35,19 @@ class _ProfileScreenState extends State<ProfileScreen>
 
   User? get _user => _authService.currentUser;
 
+  Stream<QuerySnapshot<Map<String, dynamic>>>? _catStream;
+
   @override
   void initState() {
     super.initState();
     WidgetsBinding.instance.addObserver(this);
+    final uid = _user?.uid;
+    if (uid != null) {
+      _catStream = FirebaseFirestore.instance
+          .collection('cats')
+          .where('user_id', isEqualTo: uid)
+          .snapshots();
+    }
     _loadPhoto();
     _refreshUser();
   }
@@ -127,6 +139,44 @@ class _ProfileScreenState extends State<ProfileScreen>
     _snack(result.success
         ? 'Google account successfully linked!'
         : (result.errorMessage ?? 'Google account linking failed.'));
+  }
+
+  // ---- cat profile -----------------------------------------------------
+
+  void _openAddCat() {
+    final uid = _user?.uid;
+    if (uid == null) return;
+    Navigator.of(context).push(
+      MaterialPageRoute(builder: (_) => AddCatPage(userId: uid)),
+    );
+  }
+
+  Future<void> _deleteCat(DocumentReference<Map<String, dynamic>> ref) async {
+    final confirmed = await showDialog<bool>(
+      context: context,
+      builder: (ctx) => AlertDialog(
+        title: const Text('Remove this cat?'),
+        content: const Text('This deletes your cat\'s profile.'),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(ctx, false),
+            child: const Text('Cancel'),
+          ),
+          TextButton(
+            onPressed: () => Navigator.pop(ctx, true),
+            style: TextButton.styleFrom(foregroundColor: Colors.red),
+            child: const Text('Remove'),
+          ),
+        ],
+      ),
+    );
+    if (confirmed != true) return;
+    try {
+      await ref.delete();
+      _snack('Cat profile removed.');
+    } catch (_) {
+      _snack('Could not remove the cat profile.');
+    }
   }
 
   Future<void> _handleLogout() async {
@@ -224,6 +274,8 @@ class _ProfileScreenState extends State<ProfileScreen>
                   children: [
                     _buildVerificationCard(),
                     const SizedBox(height: 18),
+                    _buildCatCard(),
+                    const SizedBox(height: 18),
                     _buildLinkedAccountsCard(),
                     const SizedBox(height: 18),
                     DashboardCard(
@@ -318,6 +370,155 @@ class _ProfileScreenState extends State<ProfileScreen>
               fontSize: 13,
               color: Colors.white.withValues(alpha: 0.9),
             ),
+          ),
+        ],
+      ),
+    );
+  }
+
+  Widget _buildCatCard() {
+    final stream = _catStream;
+    if (stream == null) return const SizedBox.shrink();
+
+    return DashboardCard(
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          const CardHeader(
+            icon: Icons.pets,
+            iconBg: AppColors.iconBgOrange,
+            iconColor: AppColors.primary,
+            title: 'My Cats',
+          ),
+          const SizedBox(height: 12),
+          StreamBuilder<QuerySnapshot<Map<String, dynamic>>>(
+            stream: stream,
+            builder: (context, snapshot) {
+              if (snapshot.hasError) {
+                return Text(
+                  'Could not load your cats.',
+                  style: TextStyle(fontSize: 13, color: Colors.grey.shade700),
+                );
+              }
+              if (!snapshot.hasData) {
+                return const Padding(
+                  padding: EdgeInsets.symmetric(vertical: 12),
+                  child: Center(
+                    child: SizedBox(
+                      width: 22,
+                      height: 22,
+                      child: CircularProgressIndicator(strokeWidth: 2),
+                    ),
+                  ),
+                );
+              }
+
+              final docs = snapshot.data!.docs;
+              return Column(
+                crossAxisAlignment: CrossAxisAlignment.stretch,
+                children: [
+                  if (docs.isEmpty)
+                    Padding(
+                      padding: const EdgeInsets.only(bottom: 12),
+                      child: Text(
+                        'You haven\'t added your cat yet. Add a name and photo '
+                        'to personalise PurrClean.',
+                        style: TextStyle(
+                          fontSize: 13,
+                          color: Colors.grey.shade700,
+                        ),
+                      ),
+                    ),
+                  for (final doc in docs) ...[
+                    _catRow(doc),
+                    const SizedBox(height: 10),
+                  ],
+                  SizedBox(
+                    height: 46,
+                    child: OutlinedButton.icon(
+                      onPressed: _openAddCat,
+                      icon: const Icon(Icons.add_rounded),
+                      label: Text(docs.isEmpty ? 'Set up cat profile' : 'Add another cat'),
+                      style: OutlinedButton.styleFrom(
+                        foregroundColor: AppColors.primary,
+                        side: const BorderSide(color: AppColors.primary),
+                        shape: RoundedRectangleBorder(
+                          borderRadius: AppDecorations.buttonRadius,
+                        ),
+                      ),
+                    ),
+                  ),
+                ],
+              );
+            },
+          ),
+        ],
+      ),
+    );
+  }
+
+  Widget _catRow(QueryDocumentSnapshot<Map<String, dynamic>> doc) {
+    final data = doc.data();
+    final name = (data['cat_name'] as String?)?.trim();
+    final breed = (data['breed'] as String?)?.trim() ?? '';
+    final age = data['age'];
+    final base64Image = (data['image_base64'] as String?) ?? '';
+
+    ImageProvider? image;
+    if (base64Image.isNotEmpty) {
+      try {
+        image = MemoryImage(base64Decode(base64Image));
+      } catch (_) {}
+    }
+
+    final details = [
+      if (breed.isNotEmpty) breed,
+      if (age is num && age > 0) '${age.toInt()} yrs',
+    ].join(' • ');
+
+    return Container(
+      padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
+      decoration: BoxDecoration(
+        color: AppColors.inputFill,
+        borderRadius: BorderRadius.circular(14),
+      ),
+      child: Row(
+        children: [
+          CircleAvatar(
+            radius: 24,
+            backgroundColor: Colors.white,
+            backgroundImage: image,
+            child: image == null
+                ? const Icon(Icons.pets, color: AppColors.primary)
+                : null,
+          ),
+          const SizedBox(width: 12),
+          Expanded(
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Text(
+                  (name == null || name.isEmpty) ? 'My Cat' : name,
+                  overflow: TextOverflow.ellipsis,
+                  style: const TextStyle(
+                    fontWeight: FontWeight.w700,
+                    fontSize: 15,
+                    color: AppColors.textDark,
+                  ),
+                ),
+                if (details.isNotEmpty)
+                  Text(
+                    details,
+                    overflow: TextOverflow.ellipsis,
+                    style: TextStyle(fontSize: 12, color: Colors.grey.shade600),
+                  ),
+              ],
+            ),
+          ),
+          IconButton(
+            tooltip: 'Remove',
+            icon: const Icon(Icons.delete_outline, color: Colors.redAccent),
+            onPressed: () => _deleteCat(doc.reference),
           ),
         ],
       ),
