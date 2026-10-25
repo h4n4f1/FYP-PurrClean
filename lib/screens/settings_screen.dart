@@ -49,11 +49,13 @@ class _SettingsScreenState extends State<SettingsScreen> {
     ),
   ];
 
-  static const _switchOn = Color(0xFF111122);
+  static const _switchOn = AppColors.primary;
   static const _switchOff = Color(0xFFD1D5DB);
 
   final _authService = FirebaseAuthService();
-  final Map<String, bool> _prefs = Map.of(LocalProfileStore.notificationDefaults);
+  final Map<String, bool> _prefs = Map.of(
+    LocalProfileStore.notificationDefaults,
+  );
 
   String get _uid => _authService.currentUser?.uid ?? 'guest';
 
@@ -66,8 +68,10 @@ class _SettingsScreenState extends State<SettingsScreen> {
   Future<void> _loadPrefs() async {
     final loaded = <String, bool>{};
     for (final option in _options) {
-      loaded[option.key] =
-          await LocalProfileStore.loadNotificationPref(_uid, option.key);
+      loaded[option.key] = await LocalProfileStore.loadNotificationPref(
+        _uid,
+        option.key,
+      );
     }
     if (!mounted) return;
     setState(() => _prefs.addAll(loaded));
@@ -105,6 +109,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
           ),
           TextButton(
             onPressed: () => Navigator.of(ctx).pop(true),
+            style: TextButton.styleFrom(foregroundColor: Colors.redAccent),
             child: const Text('Remove'),
           ),
         ],
@@ -121,10 +126,12 @@ class _SettingsScreenState extends State<SettingsScreen> {
     messenger.hideCurrentSnackBar();
     messenger.showSnackBar(
       SnackBar(
-        content: Text(acked
-            ? 'Device removed. It is back in setup mode.'
-            : 'Device removed. It will reset itself as soon as it is '
-                'back online.'),
+        content: Text(
+          acked
+              ? 'Device removed. It is back in setup mode.'
+              : 'Device removed. It will reset itself as soon as it is '
+                    'back online.',
+        ),
       ),
     );
   }
@@ -134,10 +141,16 @@ class _SettingsScreenState extends State<SettingsScreen> {
     return Scaffold(
       backgroundColor: AppColors.background,
       appBar: AppBar(
-        title: const Text('Settings'),
-        backgroundColor: AppColors.primary,
+        title: const Text(
+          'Settings',
+          style: TextStyle(fontWeight: FontWeight.bold),
+        ),
+        backgroundColor: Colors.transparent,
         foregroundColor: Colors.white,
         elevation: 0,
+        flexibleSpace: Container(
+          decoration: const BoxDecoration(gradient: AppColors.primaryGradient),
+        ),
       ),
       body: ListView(
         padding: const EdgeInsets.all(20),
@@ -145,9 +158,9 @@ class _SettingsScreenState extends State<SettingsScreen> {
           DashboardCard(
             padding: const EdgeInsets.symmetric(vertical: 8),
             child: SettingsTile(
-              icon: Icons.pets,
+              icon: Icons.pets_rounded,
               title: 'Cat Settings',
-              subtitle: 'Your cat\'s name and photo',
+              subtitle: 'Manage your cat profiles, photos, weight & age',
               onTap: () => Navigator.of(context).push(
                 MaterialPageRoute(
                   builder: (_) => const CatSettingsScreen(),
@@ -160,6 +173,8 @@ class _SettingsScreenState extends State<SettingsScreen> {
             padding: const EdgeInsets.symmetric(vertical: 8),
             child: SettingsTile(
               icon: Icons.wifi_rounded,
+              iconBg: AppColors.iconBgBlue,
+              iconColor: AppColors.infoBlue,
               title: 'Device Wi-Fi Setup',
               subtitle: 'Connect or reconnect your PurrClean to Wi-Fi',
               onTap: () => Navigator.of(context).push(
@@ -177,6 +192,8 @@ class _SettingsScreenState extends State<SettingsScreen> {
             padding: const EdgeInsets.symmetric(vertical: 8),
             child: SettingsTile(
               icon: Icons.link_off_rounded,
+              iconBg: const Color(0xFFFFEBEE),
+              iconColor: Colors.redAccent,
               title: 'Remove Device',
               subtitle: 'Make your PurrClean forget its Wi-Fi',
               onTap: _removeDevice,

@@ -4,6 +4,8 @@ import 'package:firebase_database/firebase_database.dart';
 import '../services/device_provisioning_service.dart';
 import '../services/device_status_service.dart';
 import '../services/sensor_service.dart';
+import '../theme/app_styles.dart';
+import '../widgets/page_header.dart';
 
 enum AnalyticsPeriod { daily, weekly, monthly }
 
@@ -40,6 +42,8 @@ class _AnalyticsScreenState extends State<AnalyticsScreen> {
   DwellUnit _dwellUnit = DwellUnit.minutes;
 
   late String _activeDeviceId = widget.deviceId;
+  Stream<DatabaseEvent>? _visitStream;
+  String? _streamDeviceId;
   bool _isSeeding = false;
   bool _didAutoSeed = false;
 
@@ -66,15 +70,27 @@ class _AnalyticsScreenState extends State<AnalyticsScreen> {
   @override
   void initState() {
     super.initState();
+    _ensureVisitStream();
     _resolveDeviceAndEnsureMockData();
+  }
+
+  void _ensureVisitStream() {
+    if (_visitStream == null || _streamDeviceId != _activeDeviceId) {
+      _streamDeviceId = _activeDeviceId;
+      _visitStream = _sensorService.getVisitStream(_activeDeviceId);
+    }
   }
 
   Future<void> _resolveDeviceAndEnsureMockData() async {
     final savedName = await DeviceProvisioningService.instance.savedDeviceName();
     if (savedName != null && savedName.trim().isNotEmpty && mounted) {
-      setState(() {
-        _activeDeviceId = DeviceStatusService.idFromName(savedName);
-      });
+      final resolved = DeviceStatusService.idFromName(savedName);
+      if (resolved != _activeDeviceId) {
+        setState(() {
+          _activeDeviceId = resolved;
+          _ensureVisitStream();
+        });
+      }
     }
   }
 
@@ -102,6 +118,7 @@ class _AnalyticsScreenState extends State<AnalyticsScreen> {
   }
 
   // Function to show PurrClean Alert & Notification Info Bottom Sheet
+  // ignore: unused_element
   void _showInfoDialog(BuildContext context) {
     showModalBottomSheet(
       context: context,
@@ -273,29 +290,43 @@ class _AnalyticsScreenState extends State<AnalyticsScreen> {
 
   Widget _buildPeriodToggle() {
     return Container(
-      margin: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
+      padding: const EdgeInsets.all(4),
       decoration: BoxDecoration(
-        color: Colors.white,
+        color: Colors.white.withValues(alpha: 0.18),
         borderRadius: BorderRadius.circular(16),
+        border: Border.all(color: Colors.white.withValues(alpha: 0.30)),
       ),
       child: Row(
         children: AnalyticsPeriod.values.map((period) {
           final isSelected = _selectedPeriod == period;
           return Expanded(
             child: GestureDetector(
+              behavior: HitTestBehavior.opaque,
               onTap: () => setState(() => _selectedPeriod = period),
-              child: Container(
-                padding: const EdgeInsets.symmetric(vertical: 12),
+              child: AnimatedContainer(
+                duration: const Duration(milliseconds: 180),
+                curve: Curves.easeOutCubic,
+                padding: const EdgeInsets.symmetric(vertical: 9),
                 decoration: BoxDecoration(
-                  color: isSelected ? Colors.orange : Colors.transparent,
-                  borderRadius: BorderRadius.circular(16),
+                  color: isSelected ? Colors.white : Colors.transparent,
+                  borderRadius: BorderRadius.circular(12),
+                  boxShadow: isSelected
+                      ? [
+                          BoxShadow(
+                            color: Colors.black.withValues(alpha: 0.10),
+                            blurRadius: 6,
+                            offset: const Offset(0, 2),
+                          ),
+                        ]
+                      : null,
                 ),
                 child: Text(
                   period.name[0].toUpperCase() + period.name.substring(1),
                   textAlign: TextAlign.center,
                   style: TextStyle(
-                    fontWeight: FontWeight.bold,
-                    color: isSelected ? Colors.white : Colors.black87,
+                    fontSize: 13.5,
+                    fontWeight: isSelected ? FontWeight.w800 : FontWeight.w600,
+                    color: isSelected ? AppColors.primary : Colors.white,
                   ),
                 ),
               ),
@@ -1991,10 +2022,12 @@ class _AnalyticsScreenState extends State<AnalyticsScreen> {
     final selected = _dwellUnit == unit;
     return GestureDetector(
       onTap: () => setState(() => _dwellUnit = unit),
-      child: Container(
+      child: AnimatedContainer(
+        duration: const Duration(milliseconds: 200),
+        curve: Curves.easeOutCubic,
         padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 5),
         decoration: BoxDecoration(
-          color: selected ? Colors.orange : Colors.transparent,
+          gradient: selected ? AppColors.primaryGradient : null,
           borderRadius: BorderRadius.circular(10),
         ),
         child: Text(
@@ -4169,37 +4202,38 @@ class _AnalyticsScreenState extends State<AnalyticsScreen> {
 
   @override
   Widget build(BuildContext context) {
+    _ensureVisitStream();
     return Scaffold(
-      backgroundColor: const Color(0xFFF9F3E5),
-      appBar: AppBar(
-        title: const Text("Behavioral Analytics"),
-        backgroundColor: Colors.orange,
-        elevation: 0,
-        actions: [
-          IconButton(
-            icon: _isSeeding
-                ? const SizedBox(
-                    width: 18,
-                    height: 18,
-                    child: CircularProgressIndicator(
-                      color: Colors.white,
-                      strokeWidth: 2,
-                    ),
-                  )
-                : const Icon(Icons.cloud_upload_outlined, color: Colors.white),
-            tooltip: "Seed Mock Data to Firebase RTDB",
-            onPressed: _isSeeding ? null : () => _seedMockDatabase(),
+      backgroundColor: AppColors.background,
+      body: Column(
+        children: [
+          PageHeader(
+            title: 'Analytics',
+            subtitle: 'Behavioral insights for your cat',
+            icon: Icons.insights_rounded,
+            actions: [
+              HeaderActionButton(
+                tooltip: 'Seed Mock Data to Firebase RTDB',
+                icon: Icons.cloud_upload_outlined,
+                onPressed: _isSeeding ? null : () => _seedMockDatabase(),
+                child: _isSeeding
+                    ? const SizedBox(
+                        width: 18,
+                        height: 18,
+                        child: CircularProgressIndicator(
+                          color: Colors.white,
+                          strokeWidth: 2,
+                        ),
+                      )
+                    : null,
+              ),
+            ],
+            bottom: _buildPeriodToggle(),
           ),
-          IconButton(
-            icon: const Icon(Icons.help_outline, color: Colors.white),
-            tooltip: "System Info",
-            onPressed: () => _showInfoDialog(context),
-          ),
-        ],
-      ),
-      body: SingleChildScrollView(
+          Expanded(
+      child: SingleChildScrollView(
         child: StreamBuilder<DatabaseEvent>(
-          stream: _sensorService.getVisitStream(_activeDeviceId),
+          stream: _visitStream,
           builder: (context, snapshot) {
             List<VisitRecord> visits = [];
 
@@ -4227,11 +4261,12 @@ class _AnalyticsScreenState extends State<AnalyticsScreen> {
 
             return Column(
               children: [
-                _buildPeriodToggle(),
+                const SizedBox(height: 10),
 
-                // Show Daily or Weekly graphs based on selected period
+                // Show Daily, Weekly, or Monthly graphs based on selected period
                 if (_selectedPeriod == AnalyticsPeriod.daily)
-                  snapshot.connectionState == ConnectionState.waiting
+                  (snapshot.connectionState == ConnectionState.waiting &&
+                          !snapshot.hasData)
                       ? Container(
                           height: 220,
                           margin: const EdgeInsets.symmetric(
@@ -4244,7 +4279,7 @@ class _AnalyticsScreenState extends State<AnalyticsScreen> {
                           ),
                           child: const Center(
                             child: CircularProgressIndicator(
-                              color: Colors.orange,
+                              color: AppColors.primary,
                             ),
                           ),
                         )
@@ -4266,10 +4301,11 @@ class _AnalyticsScreenState extends State<AnalyticsScreen> {
                     horizontal: 16,
                     vertical: 8,
                   ),
-                  padding: const EdgeInsets.all(16),
+                  padding: const EdgeInsets.all(18),
                   decoration: BoxDecoration(
                     color: Colors.white,
-                    borderRadius: BorderRadius.circular(20),
+                    borderRadius: BorderRadius.circular(22),
+                    boxShadow: AppDecorations.cardShadow,
                   ),
                   child: Column(
                     crossAxisAlignment: CrossAxisAlignment.start,
@@ -4277,32 +4313,40 @@ class _AnalyticsScreenState extends State<AnalyticsScreen> {
                       const Row(
                         children: [
                           CircleAvatar(
-                            backgroundColor: Color(0xFFFFE0B2),
-                            child: Icon(Icons.show_chart, color: Colors.orange),
+                            backgroundColor: AppColors.iconBgOrange,
+                            child: Icon(
+                              Icons.insights_rounded,
+                              color: AppColors.primary,
+                            ),
                           ),
                           SizedBox(width: 12),
                           Text(
                             "Behavioral Insights",
-                            style: TextStyle(
-                              fontSize: 18,
-                              fontWeight: FontWeight.bold,
-                            ),
+                            style: AppTextStyles.cardTitle,
                           ),
                         ],
                       ),
-                      const SizedBox(height: 12),
+                      const SizedBox(height: 14),
                       ...insights.map(
                         (insight) => Padding(
-                          padding: const EdgeInsets.symmetric(vertical: 6.0),
+                          padding: const EdgeInsets.symmetric(vertical: 7.0),
                           child: Row(
                             crossAxisAlignment: CrossAxisAlignment.start,
                             children: [
-                              Icon(
-                                insight.icon,
-                                color: insight.iconColor,
-                                size: 20,
+                              Container(
+                                padding: const EdgeInsets.all(7),
+                                decoration: BoxDecoration(
+                                  color: insight.iconColor
+                                      .withValues(alpha: 0.12),
+                                  borderRadius: BorderRadius.circular(10),
+                                ),
+                                child: Icon(
+                                  insight.icon,
+                                  color: insight.iconColor,
+                                  size: 18,
+                                ),
                               ),
-                              const SizedBox(width: 8),
+                              const SizedBox(width: 10),
                               Expanded(
                                 child: Column(
                                   crossAxisAlignment: CrossAxisAlignment.start,
@@ -4311,13 +4355,17 @@ class _AnalyticsScreenState extends State<AnalyticsScreen> {
                                       insight.title,
                                       style: const TextStyle(
                                         fontWeight: FontWeight.bold,
+                                        color: AppColors.textDark,
+                                        fontSize: 14,
                                       ),
                                     ),
+                                    const SizedBox(height: 2),
                                     Text(
                                       insight.description,
                                       style: const TextStyle(
                                         color: Colors.black54,
-                                        fontSize: 13,
+                                        fontSize: 12.5,
+                                        height: 1.35,
                                       ),
                                     ),
                                   ],
@@ -4344,14 +4392,29 @@ class _AnalyticsScreenState extends State<AnalyticsScreen> {
                           padding: const EdgeInsets.all(16),
                           decoration: BoxDecoration(
                             color: Colors.white,
-                            borderRadius: BorderRadius.circular(20),
+                            borderRadius: BorderRadius.circular(22),
+                            boxShadow: AppDecorations.cardShadow,
                           ),
                           child: Column(
                             crossAxisAlignment: CrossAxisAlignment.start,
                             children: [
-                              const Text(
-                                "Today's Visits",
-                                style: TextStyle(color: Colors.grey),
+                              const Row(
+                                children: [
+                                  Icon(
+                                    Icons.pets_rounded,
+                                    size: 16,
+                                    color: AppColors.primary,
+                                  ),
+                                  SizedBox(width: 6),
+                                  Text(
+                                    "Today's Visits",
+                                    style: TextStyle(
+                                      color: Colors.grey,
+                                      fontSize: 13,
+                                      fontWeight: FontWeight.w600,
+                                    ),
+                                  ),
+                                ],
                               ),
                               const SizedBox(height: 8),
                               Text(
@@ -4359,7 +4422,7 @@ class _AnalyticsScreenState extends State<AnalyticsScreen> {
                                 style: const TextStyle(
                                   fontSize: 20,
                                   fontWeight: FontWeight.bold,
-                                  color: Colors.orange,
+                                  color: AppColors.primary,
                                 ),
                               ),
                             ],
@@ -4372,24 +4435,43 @@ class _AnalyticsScreenState extends State<AnalyticsScreen> {
                           padding: const EdgeInsets.all(16),
                           decoration: BoxDecoration(
                             color: Colors.white,
-                            borderRadius: BorderRadius.circular(20),
+                            borderRadius: BorderRadius.circular(22),
+                            boxShadow: AppDecorations.cardShadow,
                           ),
                           child: Column(
                             crossAxisAlignment: CrossAxisAlignment.start,
                             children: [
-                              const Text(
-                                "Avg Dwell Time",
-                                style: TextStyle(color: Colors.grey),
+                              const Row(
+                                children: [
+                                  Icon(
+                                    Icons.timer_outlined,
+                                    size: 16,
+                                    color: AppColors.primary,
+                                  ),
+                                  SizedBox(width: 6),
+                                  Text(
+                                    "Avg Dwell Time",
+                                    style: TextStyle(
+                                      color: Colors.grey,
+                                      fontSize: 13,
+                                      fontWeight: FontWeight.w600,
+                                    ),
+                                  ),
+                                ],
                               ),
                               const SizedBox(height: 8),
-                              Text(
-                                _dwellUnit == DwellUnit.seconds
-                                    ? "$avgSec sec"
-                                    : "${avgMin.toStringAsFixed(1)} min",
-                                style: const TextStyle(
-                                  fontSize: 20,
-                                  fontWeight: FontWeight.bold,
-                                  color: Colors.orange,
+                              AnimatedSwitcher(
+                                duration: const Duration(milliseconds: 180),
+                                child: Text(
+                                  _dwellUnit == DwellUnit.seconds
+                                      ? "$avgSec sec"
+                                      : "${avgMin.toStringAsFixed(1)} min",
+                                  key: ValueKey(_dwellUnit),
+                                  style: const TextStyle(
+                                    fontSize: 20,
+                                    fontWeight: FontWeight.bold,
+                                    color: AppColors.primary,
+                                  ),
                                 ),
                               ),
                             ],
@@ -4399,11 +4481,14 @@ class _AnalyticsScreenState extends State<AnalyticsScreen> {
                     ],
                   ),
                 ),
-                const SizedBox(height: 24),
+                const SizedBox(height: 28),
               ],
             );
           },
         ),
+      ),
+          ),
+        ],
       ),
     );
   }

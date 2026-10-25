@@ -27,6 +27,12 @@ class _MainShellState extends State<MainShell> {
   StreamSubscription<DeviceLinkStatus>? _statusSub;
   DeviceLinkStatus _status = DeviceLinkStatus.unknown;
 
+  /// Last status that needed a banner (kept so the card can fade out nicely).
+  DeviceLinkStatus _lastBannerStatus = DeviceLinkStatus.notSetUp;
+
+  /// Status the user dismissed the banner for (re-shows if status changes).
+  DeviceLinkStatus? _dismissedStatus;
+
   @override
   void initState() {
     super.initState();
@@ -43,12 +49,14 @@ class _MainShellState extends State<MainShell> {
   }
 
   Future<void> _openDeviceSetup() async {
-    await Navigator.of(context).push(MaterialPageRoute(
-      builder: (ctx) => DeviceSetupScreen(
-        showBackButton: true,
-        onComplete: () => Navigator.of(ctx).pop(),
+    await Navigator.of(context).push(
+      MaterialPageRoute(
+        builder: (ctx) => DeviceSetupScreen(
+          showBackButton: true,
+          onComplete: () => Navigator.of(ctx).pop(),
+        ),
       ),
-    ));
+    );
     if (mounted) _watchStatus();
   }
 
@@ -68,26 +76,47 @@ class _MainShellState extends State<MainShell> {
 
   @override
   Widget build(BuildContext context) {
-    final showBanner = DeviceStatusBanner.isVisibleFor(_status);
+    final bannerVisible =
+        DeviceStatusBanner.isVisibleFor(_status) && _dismissedStatus != _status;
+    if (DeviceStatusBanner.isVisibleFor(_status)) _lastBannerStatus = _status;
 
     return Scaffold(
-      body: Column(
+      backgroundColor: AppColors.background,
+      body: Stack(
         children: [
-          if (showBanner)
-            DeviceStatusBanner(status: _status, onPressed: _openDeviceSetup),
-          Expanded(
-            // The banner already covers the status bar, so the screens below
-            // must not add their own top padding while it is visible.
-            child: MediaQuery.removePadding(
-              context: context,
-              removeTop: showBanner,
-              child: IndexedStack(
-                index: _index,
-                children: [
-                  const AnalyticsScreen(),
-                  HomeScreen(refreshTick: _homeRefreshTick),
-                  const ProfileScreen(),
-                ],
+          Positioned.fill(
+            child: IndexedStack(
+              index: _index,
+              children: [
+                const RepaintBoundary(child: AnalyticsScreen()),
+                RepaintBoundary(
+                  child: HomeScreen(refreshTick: _homeRefreshTick),
+                ),
+                const RepaintBoundary(child: ProfileScreen()),
+              ],
+            ),
+          ),
+          // Compact floating device status card (doesn't touch the headers)
+          Positioned(
+            left: 14,
+            right: 14,
+            bottom: 12,
+            child: IgnorePointer(
+              ignoring: !bannerVisible,
+              child: AnimatedSlide(
+                offset: bannerVisible ? Offset.zero : const Offset(0, 0.4),
+                duration: const Duration(milliseconds: 250),
+                curve: Curves.easeOutCubic,
+                child: AnimatedOpacity(
+                  opacity: bannerVisible ? 1 : 0,
+                  duration: const Duration(milliseconds: 200),
+                  child: DeviceStatusBanner(
+                    status: _lastBannerStatus,
+                    onPressed: _openDeviceSetup,
+                    onDismiss: () =>
+                        setState(() => _dismissedStatus = _status),
+                  ),
+                ),
               ),
             ),
           ),
@@ -148,9 +177,10 @@ class _BottomNavBar extends StatelessWidget {
               Expanded(
                 child: Center(
                   child: GestureDetector(
+                    behavior: HitTestBehavior.opaque,
                     onTap: () => onTap(homeIndex),
                     child: AnimatedContainer(
-                      duration: const Duration(milliseconds: 200),
+                      duration: const Duration(milliseconds: 180),
                       width: 60,
                       height: 60,
                       decoration: BoxDecoration(
@@ -158,8 +188,9 @@ class _BottomNavBar extends StatelessWidget {
                         shape: BoxShape.circle,
                         boxShadow: [
                           BoxShadow(
-                            color: AppColors.primary
-                                .withValues(alpha: homeSelected ? 0.5 : 0.25),
+                            color: AppColors.primary.withValues(
+                              alpha: homeSelected ? 0.5 : 0.25,
+                            ),
                             blurRadius: homeSelected ? 16 : 8,
                             offset: const Offset(0, 4),
                           ),
@@ -211,8 +242,18 @@ class _NavItem extends StatelessWidget {
       child: Column(
         mainAxisAlignment: MainAxisAlignment.center,
         children: [
-          Icon(icon, color: color, size: 26),
-          const SizedBox(height: 4),
+          AnimatedContainer(
+            duration: const Duration(milliseconds: 180),
+            padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 3),
+            decoration: BoxDecoration(
+              color: selected
+                  ? AppColors.primary.withValues(alpha: 0.12)
+                  : Colors.transparent,
+              borderRadius: BorderRadius.circular(12),
+            ),
+            child: Icon(icon, color: color, size: 25),
+          ),
+          const SizedBox(height: 3),
           Text(
             label,
             style: TextStyle(

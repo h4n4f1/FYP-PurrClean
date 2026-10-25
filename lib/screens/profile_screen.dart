@@ -11,6 +11,7 @@ import '../services/auth_service.dart';
 import '../services/local_profile_store.dart';
 import '../theme/app_styles.dart';
 import '../widgets/dashboard_card.dart';
+import '../widgets/page_header.dart';
 import '../widgets/profile_widgets.dart';
 import 'settings_screen.dart';
 
@@ -146,8 +147,8 @@ class _ProfileScreenState extends State<ProfileScreen>
   void _openAddCat() {
     final uid = _user?.uid;
     if (uid == null) return;
-    Navigator.of(context).push(
-      MaterialPageRoute(builder: (_) => AddCatPage(userId: uid)),
+    AddCatPage.open(
+      context, userId: uid,
     );
   }
 
@@ -260,15 +261,16 @@ class _ProfileScreenState extends State<ProfileScreen>
   Widget build(BuildContext context) {
     return Scaffold(
       backgroundColor: AppColors.background,
-      body: SafeArea(
-        bottom: false,
+      body: Column(
+        children: [
+          _buildHeader(),
+          Expanded(
         child: SingleChildScrollView(
           child: Column(
             crossAxisAlignment: CrossAxisAlignment.stretch,
             children: [
-              _buildHeader(),
               Padding(
-                padding: const EdgeInsets.fromLTRB(20, 20, 20, 32),
+                padding: const EdgeInsets.fromLTRB(20, 18, 20, 32),
                 child: Column(
                   crossAxisAlignment: CrossAxisAlignment.stretch,
                   children: [
@@ -303,6 +305,8 @@ class _ProfileScreenState extends State<ProfileScreen>
             ],
           ),
         ),
+          ),
+        ],
       ),
     );
   }
@@ -313,32 +317,52 @@ class _ProfileScreenState extends State<ProfileScreen>
         : 'PurrClean User';
     final email = _user?.email ?? 'No email available';
 
-    return Container(
-      width: double.infinity,
-      padding: const EdgeInsets.fromLTRB(24, 24, 24, 28),
-      decoration: const BoxDecoration(gradient: AppColors.primaryGradient),
-      child: Column(
-        children: [
-          // Tap the picture to change it.
-          EditableAvatar(
-            photo: _photo,
-            radius: 46,
-            onTap: _changePhoto,
-            fallback: Image.asset(
-              'assets/images/logo.png',
-              width: 56,
-              height: 56,
-            ),
+    return PageHeader(
+      title: 'Profile',
+      subtitle: 'Your account & preferences',
+      icon: Icons.person_rounded,
+      actions: [
+        HeaderActionButton(
+          tooltip: 'Settings',
+          icon: Icons.settings_rounded,
+          onPressed: () => Navigator.of(context).push(
+            MaterialPageRoute(builder: (_) => const SettingsScreen()),
           ),
-          const SizedBox(height: 14),
-          // Tap the name to change it.
-          GestureDetector(
-            behavior: HitTestBehavior.opaque,
-            onTap: _changeName,
-            child: Padding(
-              padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 4),
+        ),
+      ],
+      bottom: Container(
+        width: double.infinity,
+        padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 20),
+        decoration: BoxDecoration(
+          color: Colors.white.withValues(alpha: 0.16),
+          borderRadius: BorderRadius.circular(24),
+          border: Border.all(color: Colors.white.withValues(alpha: 0.35)),
+        ),
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          crossAxisAlignment: CrossAxisAlignment.center,
+          children: [
+            // Centred prominent profile picture
+            Center(
+              child: EditableAvatar(
+                photo: _photo,
+                radius: 48,
+                onTap: _changePhoto,
+                fallback: const Icon(
+                  Icons.person_rounded,
+                  size: 52,
+                  color: AppColors.primary,
+                ),
+              ),
+            ),
+            const SizedBox(height: 12),
+            // Centred name (tappable to edit)
+            GestureDetector(
+              behavior: HitTestBehavior.opaque,
+              onTap: _changeName,
               child: Row(
                 mainAxisSize: MainAxisSize.min,
+                mainAxisAlignment: MainAxisAlignment.center,
                 children: [
                   Flexible(
                     child: Text(
@@ -347,13 +371,13 @@ class _ProfileScreenState extends State<ProfileScreen>
                       overflow: TextOverflow.ellipsis,
                       style: const TextStyle(
                         fontFamily: 'ComicRelief',
-                        fontSize: 22,
+                        fontSize: 21,
                         fontWeight: FontWeight.bold,
                         color: Colors.white,
                       ),
                     ),
                   ),
-                  const SizedBox(width: 8),
+                  const SizedBox(width: 6),
                   Icon(
                     Icons.edit_rounded,
                     size: 16,
@@ -362,16 +386,21 @@ class _ProfileScreenState extends State<ProfileScreen>
                 ],
               ),
             ),
-          ),
-          const SizedBox(height: 2),
-          Text(
-            email,
-            style: TextStyle(
-              fontSize: 13,
-              color: Colors.white.withValues(alpha: 0.9),
+            const SizedBox(height: 4),
+            // Centred email
+            Text(
+              email,
+              textAlign: TextAlign.center,
+              maxLines: 1,
+              overflow: TextOverflow.ellipsis,
+              style: TextStyle(
+                fontSize: 13,
+                fontWeight: FontWeight.w500,
+                color: Colors.white.withValues(alpha: 0.92),
+              ),
             ),
-          ),
-        ],
+          ],
+        ),
       ),
     );
   }

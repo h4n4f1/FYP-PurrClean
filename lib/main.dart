@@ -96,9 +96,32 @@ class _MyAppState extends State<MyApp> {
       debugShowCheckedModeBanner: false,
       theme: ThemeData(
         useMaterial3: true,
-        primaryColor: const Color(0xFFFF8A00),
+        primaryColor: const Color(0xFFF97316),
         scaffoldBackgroundColor: const Color(0xFFFFF3D6),
-        colorScheme: ColorScheme.fromSeed(seedColor: const Color(0xFFFF8A00)),
+        colorScheme: ColorScheme.fromSeed(
+          seedColor: const Color(0xFFF97316),
+          primary: const Color(0xFFF97316),
+        ),
+        pageTransitionsTheme: const PageTransitionsTheme(
+          builders: {
+            TargetPlatform.android: ZoomPageTransitionsBuilder(),
+            TargetPlatform.iOS: ZoomPageTransitionsBuilder(),
+            TargetPlatform.windows: FadeUpwardsPageTransitionsBuilder(),
+          },
+        ),
+        snackBarTheme: SnackBarThemeData(
+          behavior: SnackBarBehavior.floating,
+          shape: RoundedRectangleBorder(
+            borderRadius: BorderRadius.circular(14),
+          ),
+        ),
+        dialogTheme: DialogThemeData(
+          backgroundColor: Colors.white,
+          surfaceTintColor: Colors.transparent,
+          shape: RoundedRectangleBorder(
+            borderRadius: BorderRadius.circular(24),
+          ),
+        ),
       ),
       home: const AuthWrapper(),
     );

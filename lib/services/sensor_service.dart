@@ -88,6 +88,32 @@ class SensorService {
     _dbRef = db.ref();
   }
 
+  // Listens to the entire device node under: devices/<deviceId>
+  Stream<DatabaseEvent> getDeviceStream(String deviceId) {
+    return _dbRef.child('devices/$deviceId').onValue;
+  }
+
+  // Updates fan control state in Firebase Realtime Database under: devices/<deviceId>/fan
+  Future<void> updateFanControl(
+    String deviceId, {
+    bool? isAutoMode,
+    bool? isRunning,
+  }) async {
+    final updates = <String, Object?>{
+      'auto_mode': ?isAutoMode,
+      'is_running': ?isRunning,
+      'updated_at': ServerValue.timestamp,
+    };
+    try {
+      await _dbRef
+          .child('devices/$deviceId/fan')
+          .update(updates)
+          .timeout(const Duration(seconds: 5));
+    } catch (e) {
+      debugPrint('updateFanControl failed: $e');
+    }
+  }
+
   // Listens to live sensor data under: devices/<deviceId>/visits
   Stream<DatabaseEvent> getVisitStream(String deviceId) {
     return _dbRef.child('devices/$deviceId/visits').onValue;
