@@ -1,4 +1,3 @@
-import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 import 'package:firebase_core/firebase_core.dart';
 import 'package:firebase_messaging/firebase_messaging.dart';
@@ -7,33 +6,36 @@ import 'package:shared_preferences/shared_preferences.dart';
 import 'auth_wrapper.dart';
 import 'firebase_options.dart';
 
+Future<void> _initFirebase() async {
+  if (Firebase.apps.isNotEmpty) return;
+  try {
+    await Firebase.initializeApp(
+      options: DefaultFirebaseOptions.currentPlatform,
+    );
+  } on FirebaseException catch (e) {
+    if (e.code == 'duplicate-app') {
+      await Firebase.initializeApp();
+    } else {
+      rethrow;
+    }
+  }
+}
+
 @pragma('vm:entry-point')
 Future<void> _firebaseMessagingBackgroundHandler(RemoteMessage message) async {
-  await Firebase.initializeApp(
-    options: DefaultFirebaseOptions.currentPlatform,
-  );
+  await _initFirebase();
   debugPrint('Handling a background message: ${message.messageId}');
 }
 
 Future<void> main() async {
   WidgetsFlutterBinding.ensureInitialized();
-<<<<<<< Updated upstream
 
   // Start Firebase and warm up local storage at the same time.
   await Future.wait([
-    Firebase.initializeApp(options: DefaultFirebaseOptions.currentPlatform),
+    _initFirebase(),
     SharedPreferences.getInstance(),
   ]);
-=======
-  
-  // 1. Initialize Firebase
-  await Firebase.initializeApp(
-    options: DefaultFirebaseOptions.currentPlatform,
-  );
-  
-  // ADDED: Confirmation print statement
-  print('🔥 Firebase core successfully initialized in main.dart!');
->>>>>>> Stashed changes
+  debugPrint('🔥 Firebase core successfully initialized in main.dart!');
 
   FirebaseMessaging.onBackgroundMessage(_firebaseMessagingBackgroundHandler);
   runApp(const MyApp());

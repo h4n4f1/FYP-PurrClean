@@ -517,7 +517,7 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
     required int maxPpm,
     required Color color,
   }) {
-    final progress = (valuePpm / maxPpm).clamp(0.0, 1.0);
+    final progress = maxPpm > 0 ? (valuePpm / maxPpm).clamp(0.0, 1.0) : 0.0;
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
