@@ -3,29 +3,15 @@ import 'package:fl_chart/fl_chart.dart';
 import 'package:firebase_database/firebase_database.dart';
 import '../services/device_provisioning_service.dart';
 import '../services/device_status_service.dart';
+import '../services/behavior_insights_service.dart';
 import '../services/sensor_service.dart';
 import '../theme/app_styles.dart';
+import '../widgets/behavioral_insights_card.dart';
 import '../widgets/page_header.dart';
 
 enum AnalyticsPeriod { daily, weekly, monthly }
 
 enum DwellUnit { minutes, seconds }
-
-class BehavioralInsight {
-  final IconData icon;
-  final Color iconColor;
-  final String title;
-  final String severity; // 'high' | 'medium' | 'low'
-  final String description;
-
-  const BehavioralInsight({
-    required this.icon,
-    required this.iconColor,
-    required this.title,
-    required this.severity,
-    required this.description,
-  });
-}
 
 class AnalyticsScreen extends StatefulWidget {
   final String deviceId;
@@ -43,29 +29,11 @@ class _AnalyticsScreenState extends State<AnalyticsScreen> {
 
   late String _activeDeviceId = widget.deviceId;
   Stream<DatabaseEvent>? _visitStream;
+  Stream<DatabaseEvent>? _weeklyStream;
+  Stream<DatabaseEvent>? _monthlyStream;
   String? _streamDeviceId;
   bool _isSeeding = false;
   bool _didAutoSeed = false;
-
-  // Mock Insights
-  final List<BehavioralInsight> insights = const [
-    BehavioralInsight(
-      icon: Icons.trending_up,
-      iconColor: Colors.orange,
-      title: "Increased Morning & Evening Dwell Time",
-      severity: "medium",
-      description:
-          "Longer dwell times detected at 08:40 (3.58 min / 215s) and 20:05 (4.08 min / 245s).",
-    ),
-    BehavioralInsight(
-      icon: Icons.check_circle_outline,
-      iconColor: Colors.green,
-      title: "Normal Daytime Frequency",
-      severity: "low",
-      description:
-          "8 total visits recorded across the 24-hour cycle (00:00–23:59) within a healthy range.",
-    ),
-  ];
 
   @override
   void initState() {
@@ -78,11 +46,21 @@ class _AnalyticsScreenState extends State<AnalyticsScreen> {
     if (_visitStream == null || _streamDeviceId != _activeDeviceId) {
       _streamDeviceId = _activeDeviceId;
       _visitStream = _sensorService.getVisitStream(_activeDeviceId);
+      _weeklyStream = _sensorService.getWeeklyStream(_activeDeviceId);
+      _monthlyStream = _sensorService.getMonthlyStream(_activeDeviceId);
     }
   }
 
+  void _refreshStreams() {
+    _streamDeviceId = _activeDeviceId;
+    _visitStream = _sensorService.getVisitStream(_activeDeviceId);
+    _weeklyStream = _sensorService.getWeeklyStream(_activeDeviceId);
+    _monthlyStream = _sensorService.getMonthlyStream(_activeDeviceId);
+  }
+
   Future<void> _resolveDeviceAndEnsureMockData() async {
-    final savedName = await DeviceProvisioningService.instance.savedDeviceName();
+    final savedName = await DeviceProvisioningService.instance
+        .savedDeviceName();
     if (savedName != null && savedName.trim().isNotEmpty && mounted) {
       final resolved = DeviceStatusService.idFromName(savedName);
       if (resolved != _activeDeviceId) {
@@ -302,7 +280,13 @@ class _AnalyticsScreenState extends State<AnalyticsScreen> {
           return Expanded(
             child: GestureDetector(
               behavior: HitTestBehavior.opaque,
-              onTap: () => setState(() => _selectedPeriod = period),
+              onTap: () => setState(() {
+                _selectedPeriod = period;
+                // Firebase onValue streams are single-subscription: a stream
+                // cannot be listened to again after its StreamBuilder was
+                // disposed. Create fresh streams whenever the period changes.
+                _refreshStreams();
+              }),
               child: AnimatedContainer(
                 duration: const Duration(milliseconds: 180),
                 curve: Curves.easeOutCubic,
@@ -339,12 +323,20 @@ class _AnalyticsScreenState extends State<AnalyticsScreen> {
 
   // Unified Designer Color Palette for Graph 1, Graph 2 & Graph 3
   static const Color _kSafeAmber = Color(0xFFFFB74D); // Normal Dwell / Deposit
-  static const Color _kDangerRed = Color(0xFFE53935); // Extended Dwell / Danger Odor (>=80%)
-  static const Color _kSafeAmmonia = Color(0xFF7E57C2); // Safe Ammonia (<30 ppm) - Purple
-  static const Color _kDangerAmmonia = Color(0xFFFF8A00); // Danger Ammonia (>=30 ppm) - Orange
+  static const Color _kDangerRed = Color(
+    0xFFE53935,
+  ); // Extended Dwell / Danger Odor (>=80%)
+  static const Color _kSafeAmmonia = Color(
+    0xFF7E57C2,
+  ); // Safe Ammonia (<30 ppm) - Purple
+  static const Color _kDangerAmmonia = Color(
+    0xFFFF8A00,
+  ); // Danger Ammonia (>=30 ppm) - Orange
   static const Color _kSafeOdor = Color(0xFF26A69A); // Safe Odor (<80%) - Teal
   static const Color _kTrendOrange = Color(0xFFE65100); // Trend Line & Accent
-  static const Color _kTooltipBg = Color(0xFF263238); // Unified Tooltip & Axis Label Color
+  static const Color _kTooltipBg = Color(
+    0xFF263238,
+  ); // Unified Tooltip & Axis Label Color
 
   int? _selectedHeatmapRow;
   int? _selectedHeatmapHour;
@@ -495,14 +487,10 @@ class _AnalyticsScreenState extends State<AnalyticsScreen> {
                   drawVerticalLine: true,
                   horizontalInterval: yInterval,
                   verticalInterval: 4,
-                  getDrawingHorizontalLine: (value) => FlLine(
-                    color: Colors.grey.shade200,
-                    strokeWidth: 1,
-                  ),
-                  getDrawingVerticalLine: (value) => FlLine(
-                    color: Colors.grey.shade100,
-                    strokeWidth: 1,
-                  ),
+                  getDrawingHorizontalLine: (value) =>
+                      FlLine(color: Colors.grey.shade200, strokeWidth: 1),
+                  getDrawingVerticalLine: (value) =>
+                      FlLine(color: Colors.grey.shade100, strokeWidth: 1),
                 ),
                 extraLinesData: ExtraLinesData(
                   horizontalLines: [
@@ -520,9 +508,8 @@ class _AnalyticsScreenState extends State<AnalyticsScreen> {
                           fontWeight: FontWeight.bold,
                           color: _kDangerRed,
                         ),
-                        labelResolver: (_) => inSeconds
-                            ? 'Extended Alert'
-                            : 'Extended Alert',
+                        labelResolver: (_) =>
+                            inSeconds ? 'Extended Alert' : 'Extended Alert',
                       ),
                     ),
                   ],
@@ -714,8 +701,10 @@ class _AnalyticsScreenState extends State<AnalyticsScreen> {
 
     final List<BarChartGroupData> barGroups = List.generate(visits.length, (i) {
       final v = visits[i];
-      final scaledAmmonia =
-          (v.ammoniaPpm * ammoniaToChartFactor).clamp(0.0, maxOdorScale);
+      final scaledAmmonia = (v.ammoniaPpm * ammoniaToChartFactor).clamp(
+        0.0,
+        maxOdorScale,
+      );
       final scaledOdor = v.odorIndex.clamp(0.0, maxOdorScale);
 
       final bool isAmmoniaDangerous = v.ammoniaPpm >= dangerAmmoniaPpm;
@@ -842,10 +831,8 @@ class _AnalyticsScreenState extends State<AnalyticsScreen> {
                   show: true,
                   drawVerticalLine: false,
                   horizontalInterval: 20,
-                  getDrawingHorizontalLine: (value) => FlLine(
-                    color: Colors.grey.shade200,
-                    strokeWidth: 1,
-                  ),
+                  getDrawingHorizontalLine: (value) =>
+                      FlLine(color: Colors.grey.shade200, strokeWidth: 1),
                 ),
                 extraLinesData: ExtraLinesData(
                   horizontalLines: [
@@ -991,7 +978,8 @@ class _AnalyticsScreenState extends State<AnalyticsScreen> {
                           return const SizedBox.shrink();
                         }
                         final v = visits[idx];
-                        final isDanger = v.ammoniaPpm >= dangerAmmoniaPpm ||
+                        final isDanger =
+                            v.ammoniaPpm >= dangerAmmoniaPpm ||
                             v.odorIndex >= dangerOdorPercent;
                         return Padding(
                           padding: const EdgeInsets.only(top: 6),
@@ -1057,8 +1045,9 @@ class _AnalyticsScreenState extends State<AnalyticsScreen> {
     const double alertGrams = 60.0;
     final double barWidth = visits.length > 6 ? 12.0 : 15.0;
 
-    final int alertCount =
-        visits.where((v) => v.depositGrams >= alertGrams).length;
+    final int alertCount = visits
+        .where((v) => v.depositGrams >= alertGrams)
+        .length;
 
     final List<BarChartGroupData> barGroups = List.generate(visits.length, (i) {
       final v = visits[i];
@@ -1162,10 +1151,8 @@ class _AnalyticsScreenState extends State<AnalyticsScreen> {
                   show: true,
                   drawVerticalLine: false,
                   horizontalInterval: 20,
-                  getDrawingHorizontalLine: (value) => FlLine(
-                    color: Colors.grey.shade200,
-                    strokeWidth: 1,
-                  ),
+                  getDrawingHorizontalLine: (value) =>
+                      FlLine(color: Colors.grey.shade200, strokeWidth: 1),
                 ),
                 extraLinesData: ExtraLinesData(
                   horizontalLines: [
@@ -1349,10 +1336,7 @@ class _AnalyticsScreenState extends State<AnalyticsScreen> {
               const SizedBox(height: 2),
               Text(
                 subtitle,
-                style: const TextStyle(
-                  fontSize: 11.5,
-                  color: Colors.black54,
-                ),
+                style: const TextStyle(fontSize: 11.5, color: Colors.black54),
               ),
             ],
           ),
@@ -1597,11 +1581,7 @@ class _AnalyticsScreenState extends State<AnalyticsScreen> {
         children: [
           Row(
             children: [
-              const Icon(
-                Icons.tune_rounded,
-                size: 15,
-                color: _kTooltipBg,
-              ),
+              const Icon(Icons.tune_rounded, size: 15, color: _kTooltipBg),
               const SizedBox(width: 6),
               const Text(
                 "Visual Aid: Status Threshold Scale",
@@ -1787,7 +1767,8 @@ class _AnalyticsScreenState extends State<AnalyticsScreen> {
     String moderateLabel,
     String alertLabel,
     String triggerNote,
-  }) _getGraphTipDetails(String title, String subtitle) {
+  })
+  _getGraphTipDetails(String title, String subtitle) {
     switch (title) {
       case "Chronological Visit & Dwell Timeline":
         return (
@@ -1880,8 +1861,7 @@ class _AnalyticsScreenState extends State<AnalyticsScreen> {
           popupTitle: "Litter Cleanliness & Fan Runtime",
           whatItShows:
               "How many minutes the ventilation fan needs to run to pull box air back to fresh levels after a visit.",
-          normalRange:
-              "45 to 90 seconds on fresh litter.",
+          normalRange: "45 to 90 seconds on fresh litter.",
           warningSigns:
               "• Purge times steadily exceeding 3 to 4 minutes. This means the litter substrate is saturated with residual odor and moisture and requires a full cleanout and refill.",
           lowLabel: "45s – 90s",
@@ -1926,8 +1906,7 @@ class _AnalyticsScreenState extends State<AnalyticsScreen> {
         return (
           badge: "3. Long-Term Median Gas Concentration",
           popupTitle: "Chronic Gas Baselines",
-          whatItShows:
-              "The rolling monthly average of waste gas intensity.",
+          whatItShows: "The rolling monthly average of waste gas intensity.",
           normalRange:
               "Flat, predictable levels matching your cat's standard diet.",
           warningSigns:
@@ -1956,10 +1935,7 @@ class _AnalyticsScreenState extends State<AnalyticsScreen> {
     }
   }
 
-  Widget _buildThresholdBanner({
-    required String text,
-    required bool hasAlert,
-  }) {
+  Widget _buildThresholdBanner({required String text, required bool hasAlert}) {
     final Color bgColor = hasAlert
         ? const Color(0xFFFFF3E0)
         : const Color(0xFFF5F5F5);
@@ -2085,15 +2061,22 @@ class _AnalyticsScreenState extends State<AnalyticsScreen> {
   /// Graph 3: Litter Degradation & Fan Purge Duration (Area / Step Line)
   Widget _buildWeeklySection() {
     return StreamBuilder<DatabaseEvent>(
-      stream: _sensorService.getWeeklyStream(_activeDeviceId),
+      stream: _weeklyStream,
       builder: (context, weeklySnapshot) {
-        final List<WeeklyDayRecord> weeklyDays =
-            _sensorService.parseWeeklyRecords(weeklySnapshot.data?.snapshot);
+        final List<WeeklyDayRecord> weeklyDays = _sensorService
+            .parseWeeklyRecords(weeklySnapshot.data?.snapshot);
         return Column(
           children: [
             _buildWeeklyOutputStackedChartCard(weeklyDays),
             _buildWeeklyFrequencyVsStrainingCard(weeklyDays),
             _buildWeeklyFanPurgeStepChartCard(weeklyDays),
+            BehavioralInsightsCard(
+              periodLabel: 'Last 7 days',
+              insights: BehaviorInsightsService.weekly(weeklyDays),
+            ),
+            SummaryMetricRow(
+              metrics: BehaviorInsightsService.weeklySummary(weeklyDays),
+            ),
           ],
         );
       },
@@ -2109,8 +2092,9 @@ class _AnalyticsScreenState extends State<AnalyticsScreen> {
         .where((d) => d.totalGrams >= highOutputAlertGrams)
         .length;
 
-    final List<BarChartGroupData> barGroups =
-        List.generate(weeklyDays.length, (i) {
+    final List<BarChartGroupData> barGroups = List.generate(weeklyDays.length, (
+      i,
+    ) {
       final d = weeklyDays[i];
       final urineG = d.urineGrams.clamp(0.0, maxDailyGrams);
       final totalG = (d.urineGrams + d.fecesGrams).clamp(0.0, maxDailyGrams);
@@ -2223,10 +2207,8 @@ class _AnalyticsScreenState extends State<AnalyticsScreen> {
                   show: true,
                   drawVerticalLine: false,
                   horizontalInterval: 60,
-                  getDrawingHorizontalLine: (value) => FlLine(
-                    color: Colors.grey.shade200,
-                    strokeWidth: 1,
-                  ),
+                  getDrawingHorizontalLine: (value) =>
+                      FlLine(color: Colors.grey.shade200, strokeWidth: 1),
                 ),
                 extraLinesData: ExtraLinesData(
                   horizontalLines: [
@@ -2379,7 +2361,9 @@ class _AnalyticsScreenState extends State<AnalyticsScreen> {
   /// Weekly Graph 2: Visit Frequency vs. Straining Ratio (Grouped Bar + Line)
   /// X-axis: Days of the week (Mon – Sun)
   /// Y-axis: Left: Total visit count (0..10); Right: Total minutes spent straining/dwelling (0..25m)
-  Widget _buildWeeklyFrequencyVsStrainingCard(List<WeeklyDayRecord> weeklyDays) {
+  Widget _buildWeeklyFrequencyVsStrainingCard(
+    List<WeeklyDayRecord> weeklyDays,
+  ) {
     // Internal chart scale is 0..25 (matching Right Y-axis: 0..25 minutes).
     // Left Y-axis (0..10 visits) maps 1 visit -> 2.5 chart units.
     const double maxDwellMinutes = 25.0;
@@ -2409,8 +2393,10 @@ class _AnalyticsScreenState extends State<AnalyticsScreen> {
             FlSpot(i - barOffset, 0),
             FlSpot(
               i - barOffset,
-              (weeklyDays[i].totalVisits * visitsToChartFactor)
-                  .clamp(0.0, maxDwellMinutes),
+              (weeklyDays[i].totalVisits * visitsToChartFactor).clamp(
+                0.0,
+                maxDwellMinutes,
+              ),
             ),
           ],
           isCurved: false,
@@ -2562,14 +2548,10 @@ class _AnalyticsScreenState extends State<AnalyticsScreen> {
                   drawVerticalLine: true,
                   horizontalInterval: 5,
                   verticalInterval: 1,
-                  getDrawingHorizontalLine: (value) => FlLine(
-                    color: Colors.grey.shade200,
-                    strokeWidth: 1,
-                  ),
-                  getDrawingVerticalLine: (value) => FlLine(
-                    color: Colors.grey.shade100,
-                    strokeWidth: 1,
-                  ),
+                  getDrawingHorizontalLine: (value) =>
+                      FlLine(color: Colors.grey.shade200, strokeWidth: 1),
+                  getDrawingVerticalLine: (value) =>
+                      FlLine(color: Colors.grey.shade100, strokeWidth: 1),
                 ),
                 extraLinesData: ExtraLinesData(
                   horizontalLines: [
@@ -2615,8 +2597,8 @@ class _AnalyticsScreenState extends State<AnalyticsScreen> {
                       reservedSize: 32,
                       interval: 5,
                       getTitlesWidget: (value, meta) {
-                        final visitsCount =
-                            (value / visitsToChartFactor).round();
+                        final visitsCount = (value / visitsToChartFactor)
+                            .round();
                         return SizedBox(
                           width: 32,
                           child: Text(
@@ -2774,9 +2756,7 @@ class _AnalyticsScreenState extends State<AnalyticsScreen> {
 
     final List<FlSpot> stepSpots = List.generate(weeklyDays.length, (i) {
       final d = weeklyDays[i];
-      final yVal = inSeconds
-          ? d.fanPurgeSeconds.toDouble()
-          : d.fanPurgeMinutes;
+      final yVal = inSeconds ? d.fanPurgeSeconds.toDouble() : d.fanPurgeMinutes;
       return FlSpot(i.toDouble(), yVal.clamp(0.0, maxY));
     });
 
@@ -2855,14 +2835,10 @@ class _AnalyticsScreenState extends State<AnalyticsScreen> {
                   drawVerticalLine: true,
                   horizontalInterval: yInterval,
                   verticalInterval: 1,
-                  getDrawingHorizontalLine: (value) => FlLine(
-                    color: Colors.grey.shade200,
-                    strokeWidth: 1,
-                  ),
-                  getDrawingVerticalLine: (value) => FlLine(
-                    color: Colors.grey.shade100,
-                    strokeWidth: 1,
-                  ),
+                  getDrawingHorizontalLine: (value) =>
+                      FlLine(color: Colors.grey.shade200, strokeWidth: 1),
+                  getDrawingVerticalLine: (value) =>
+                      FlLine(color: Colors.grey.shade100, strokeWidth: 1),
                 ),
                 extraLinesData: ExtraLinesData(
                   horizontalLines: [
@@ -3064,15 +3040,22 @@ class _AnalyticsScreenState extends State<AnalyticsScreen> {
   /// Graph 3: Chronic Odor & Ammonia Baseline Trends (Dual-Trend Line)
   Widget _buildMonthlySection() {
     return StreamBuilder<DatabaseEvent>(
-      stream: _sensorService.getMonthlyStream(_activeDeviceId),
+      stream: _monthlyStream,
       builder: (context, monthlySnapshot) {
-        final List<MonthlyDayRecord> monthlyDays =
-            _sensorService.parseMonthlyRecords(monthlySnapshot.data?.snapshot);
+        final List<MonthlyDayRecord> monthlyDays = _sensorService
+            .parseMonthlyRecords(monthlySnapshot.data?.snapshot);
         return Column(
           children: [
             _buildMonthlyWeightTrajectoryCard(monthlyDays),
             _buildMonthlyCircadianHeatmapCard(monthlyDays),
             _buildMonthlyGasBaselineTrendCard(monthlyDays),
+            BehavioralInsightsCard(
+              periodLabel: 'Last 30 days',
+              insights: BehaviorInsightsService.monthly(monthlyDays),
+            ),
+            SummaryMetricRow(
+              metrics: BehaviorInsightsService.monthlySummary(monthlyDays),
+            ),
           ],
         );
       },
@@ -3194,14 +3177,10 @@ class _AnalyticsScreenState extends State<AnalyticsScreen> {
                   drawVerticalLine: true,
                   horizontalInterval: weightIntervalKg,
                   verticalInterval: 5,
-                  getDrawingHorizontalLine: (value) => FlLine(
-                    color: Colors.grey.shade200,
-                    strokeWidth: 1,
-                  ),
-                  getDrawingVerticalLine: (value) => FlLine(
-                    color: Colors.grey.shade100,
-                    strokeWidth: 1,
-                  ),
+                  getDrawingHorizontalLine: (value) =>
+                      FlLine(color: Colors.grey.shade200, strokeWidth: 1),
+                  getDrawingVerticalLine: (value) =>
+                      FlLine(color: Colors.grey.shade100, strokeWidth: 1),
                 ),
                 extraLinesData: ExtraLinesData(
                   horizontalLines: [
@@ -3470,7 +3449,7 @@ class _AnalyticsScreenState extends State<AnalyticsScreen> {
     final int activeCount = matrix[activeRow][activeHour];
     final bool activeIsNocturnalAlert =
         (activeHour >= 1 && activeHour <= 4 && activeCount >= 4) ||
-            activeCount >= 8;
+        activeCount >= 8;
     final String activeHourStr =
         '${activeHour.toString().padLeft(2, '0')}:00–${activeHour.toString().padLeft(2, '0')}:59';
 
@@ -3644,8 +3623,9 @@ class _AnalyticsScreenState extends State<AnalyticsScreen> {
                           children: List.generate(6, (r) {
                             return Expanded(
                               child: Padding(
-                                padding:
-                                    const EdgeInsets.symmetric(vertical: 1.8),
+                                padding: const EdgeInsets.symmetric(
+                                  vertical: 1.8,
+                                ),
                                 child: Row(
                                   crossAxisAlignment:
                                       CrossAxisAlignment.stretch,
@@ -3665,8 +3645,9 @@ class _AnalyticsScreenState extends State<AnalyticsScreen> {
                                           ),
                                           decoration: BoxDecoration(
                                             color: cellColorFor(r, h, count),
-                                            borderRadius:
-                                                BorderRadius.circular(3.5),
+                                            borderRadius: BorderRadius.circular(
+                                              3.5,
+                                            ),
                                             border: isSelected
                                                 ? Border.all(
                                                     color: _kTooltipBg,
@@ -3812,8 +3793,10 @@ class _AnalyticsScreenState extends State<AnalyticsScreen> {
         .map(
           (d) => FlSpot(
             d.dayOfMonth.toDouble(),
-            (d.medianAmmoniaPpm * ammoniaToChartFactor)
-                .clamp(0.0, maxOdorScale),
+            (d.medianAmmoniaPpm * ammoniaToChartFactor).clamp(
+              0.0,
+              maxOdorScale,
+            ),
           ),
         )
         .toList();
@@ -3919,14 +3902,10 @@ class _AnalyticsScreenState extends State<AnalyticsScreen> {
                   drawVerticalLine: true,
                   horizontalInterval: 20,
                   verticalInterval: 5,
-                  getDrawingHorizontalLine: (value) => FlLine(
-                    color: Colors.grey.shade200,
-                    strokeWidth: 1,
-                  ),
-                  getDrawingVerticalLine: (value) => FlLine(
-                    color: Colors.grey.shade100,
-                    strokeWidth: 1,
-                  ),
+                  getDrawingHorizontalLine: (value) =>
+                      FlLine(color: Colors.grey.shade200, strokeWidth: 1),
+                  getDrawingVerticalLine: (value) =>
+                      FlLine(color: Colors.grey.shade100, strokeWidth: 1),
                 ),
                 extraLinesData: ExtraLinesData(
                   horizontalLines: [
@@ -4116,7 +4095,8 @@ class _AnalyticsScreenState extends State<AnalyticsScreen> {
                         }
                         final d = monthlyDays[idx];
                         final nh3Alert = d.medianAmmoniaPpm >= dangerAmmoniaPpm;
-                        final odorAlert = d.medianOdorIndex >= dangerOdorPercent;
+                        final odorAlert =
+                            d.medianOdorIndex >= dangerOdorPercent;
                         return LineTooltipItem(
                           'Day ${d.dayOfMonth}\n'
                           'NH₃: ${d.medianAmmoniaPpm.toStringAsFixed(1)} ppm${nh3Alert ? " ⚠️" : ""}\n'
@@ -4152,8 +4132,9 @@ class _AnalyticsScreenState extends State<AnalyticsScreen> {
                           radius: isDanger ? 3.8 : 3.0,
                           color: Colors.white,
                           strokeWidth: 2.2,
-                          strokeColor:
-                              isDanger ? _kDangerAmmonia : _kSafeAmmonia,
+                          strokeColor: isDanger
+                              ? _kDangerAmmonia
+                              : _kSafeAmmonia,
                         );
                       },
                     ),
@@ -4200,6 +4181,32 @@ class _AnalyticsScreenState extends State<AnalyticsScreen> {
     );
   }
 
+  /// Daily behavioral insights + summary cards.
+  /// Weekly / Monthly render their own insights inside their section
+  /// StreamBuilders so each Firebase stream has exactly ONE listener.
+  Widget _buildInsightsAndSummary(List<VisitRecord> visits) {
+    switch (_selectedPeriod) {
+      case AnalyticsPeriod.daily:
+        return Column(
+          children: [
+            BehavioralInsightsCard(
+              periodLabel: 'Today',
+              insights: BehaviorInsightsService.daily(visits),
+            ),
+            SummaryMetricRow(
+              metrics: BehaviorInsightsService.dailySummary(
+                visits,
+                inSeconds: _dwellUnit == DwellUnit.seconds,
+              ),
+            ),
+          ],
+        );
+      case AnalyticsPeriod.weekly:
+      case AnalyticsPeriod.monthly:
+        return const SizedBox.shrink();
+    }
+  }
+
   @override
   Widget build(BuildContext context) {
     _ensureVisitStream();
@@ -4231,262 +4238,70 @@ class _AnalyticsScreenState extends State<AnalyticsScreen> {
             bottom: _buildPeriodToggle(),
           ),
           Expanded(
-      child: SingleChildScrollView(
-        child: StreamBuilder<DatabaseEvent>(
-          stream: _visitStream,
-          builder: (context, snapshot) {
-            List<VisitRecord> visits = [];
+            child: SingleChildScrollView(
+              child: StreamBuilder<DatabaseEvent>(
+                stream: _visitStream,
+                builder: (context, snapshot) {
+                  List<VisitRecord> visits = [];
 
-            if (snapshot.hasData && snapshot.data?.snapshot.value != null) {
-              visits = _sensorService.parseVisitRecords(snapshot.data!.snapshot);
-            } else if (snapshot.connectionState == ConnectionState.active &&
-                !_didAutoSeed) {
-              _didAutoSeed = true;
-              WidgetsBinding.instance.addPostFrameCallback((_) {
-                _seedMockDatabase(showFeedback: false);
-              });
-            }
+                  if (snapshot.hasData &&
+                      snapshot.data?.snapshot.value != null) {
+                    visits = _sensorService.parseVisitRecords(
+                      snapshot.data!.snapshot,
+                    );
+                  } else if (snapshot.connectionState ==
+                          ConnectionState.active &&
+                      !_didAutoSeed) {
+                    _didAutoSeed = true;
+                    WidgetsBinding.instance.addPostFrameCallback((_) {
+                      _seedMockDatabase(showFeedback: false);
+                    });
+                  }
 
-            // Compute live summary metrics from visits if available
-            final int totalVisits = visits.length;
-            final double avgMin = totalVisits > 0
-                ? visits.fold<double>(0, (sum, v) => sum + v.durationMinutes) /
-                    totalVisits
-                : 1.9;
-            final int avgSec = totalVisits > 0
-                ? (visits.fold<int>(0, (sum, v) => sum + v.durationSeconds) /
-                        totalVisits)
-                    .round()
-                : 114;
-
-            return Column(
-              children: [
-                const SizedBox(height: 10),
-
-                // Show Daily, Weekly, or Monthly graphs based on selected period
-                if (_selectedPeriod == AnalyticsPeriod.daily)
-                  (snapshot.connectionState == ConnectionState.waiting &&
-                          !snapshot.hasData)
-                      ? Container(
-                          height: 220,
-                          margin: const EdgeInsets.symmetric(
-                            horizontal: 16,
-                            vertical: 8,
-                          ),
-                          decoration: BoxDecoration(
-                            color: Colors.white,
-                            borderRadius: BorderRadius.circular(20),
-                          ),
-                          child: const Center(
-                            child: CircularProgressIndicator(
-                              color: AppColors.primary,
-                            ),
-                          ),
-                        )
-                      : Column(
-                          children: [
-                            _buildComboDwellChartCard(visits),
-                            _buildGasFingerprintChartCard(visits),
-                            _buildDepositMassChartCard(visits),
-                          ],
-                        )
-                else if (_selectedPeriod == AnalyticsPeriod.weekly)
-                  _buildWeeklySection()
-                else
-                  _buildMonthlySection(),
-
-                // Behavioral Insights Section
-                Container(
-                  margin: const EdgeInsets.symmetric(
-                    horizontal: 16,
-                    vertical: 8,
-                  ),
-                  padding: const EdgeInsets.all(18),
-                  decoration: BoxDecoration(
-                    color: Colors.white,
-                    borderRadius: BorderRadius.circular(22),
-                    boxShadow: AppDecorations.cardShadow,
-                  ),
-                  child: Column(
-                    crossAxisAlignment: CrossAxisAlignment.start,
+                  return Column(
                     children: [
-                      const Row(
-                        children: [
-                          CircleAvatar(
-                            backgroundColor: AppColors.iconBgOrange,
-                            child: Icon(
-                              Icons.insights_rounded,
-                              color: AppColors.primary,
-                            ),
-                          ),
-                          SizedBox(width: 12),
-                          Text(
-                            "Behavioral Insights",
-                            style: AppTextStyles.cardTitle,
-                          ),
-                        ],
-                      ),
-                      const SizedBox(height: 14),
-                      ...insights.map(
-                        (insight) => Padding(
-                          padding: const EdgeInsets.symmetric(vertical: 7.0),
-                          child: Row(
-                            crossAxisAlignment: CrossAxisAlignment.start,
-                            children: [
-                              Container(
-                                padding: const EdgeInsets.all(7),
+                      const SizedBox(height: 10),
+
+                      // Show Daily, Weekly, or Monthly graphs based on selected period
+                      if (_selectedPeriod == AnalyticsPeriod.daily)
+                        (snapshot.connectionState == ConnectionState.waiting &&
+                                !snapshot.hasData)
+                            ? Container(
+                                height: 220,
+                                margin: const EdgeInsets.symmetric(
+                                  horizontal: 16,
+                                  vertical: 8,
+                                ),
                                 decoration: BoxDecoration(
-                                  color: insight.iconColor
-                                      .withValues(alpha: 0.12),
-                                  borderRadius: BorderRadius.circular(10),
+                                  color: Colors.white,
+                                  borderRadius: BorderRadius.circular(20),
                                 ),
-                                child: Icon(
-                                  insight.icon,
-                                  color: insight.iconColor,
-                                  size: 18,
+                                child: const Center(
+                                  child: CircularProgressIndicator(
+                                    color: AppColors.primary,
+                                  ),
                                 ),
-                              ),
-                              const SizedBox(width: 10),
-                              Expanded(
-                                child: Column(
-                                  crossAxisAlignment: CrossAxisAlignment.start,
-                                  children: [
-                                    Text(
-                                      insight.title,
-                                      style: const TextStyle(
-                                        fontWeight: FontWeight.bold,
-                                        color: AppColors.textDark,
-                                        fontSize: 14,
-                                      ),
-                                    ),
-                                    const SizedBox(height: 2),
-                                    Text(
-                                      insight.description,
-                                      style: const TextStyle(
-                                        color: Colors.black54,
-                                        fontSize: 12.5,
-                                        height: 1.35,
-                                      ),
-                                    ),
-                                  ],
-                                ),
-                              ),
-                            ],
-                          ),
-                        ),
-                      ),
-                    ],
-                  ),
-                ),
+                              )
+                            : Column(
+                                children: [
+                                  _buildComboDwellChartCard(visits),
+                                  _buildGasFingerprintChartCard(visits),
+                                  _buildDepositMassChartCard(visits),
+                                ],
+                              )
+                      else if (_selectedPeriod == AnalyticsPeriod.weekly)
+                        _buildWeeklySection()
+                      else
+                        _buildMonthlySection(),
 
-                // Summary Metric Cards
-                Padding(
-                  padding: const EdgeInsets.symmetric(
-                    horizontal: 16.0,
-                    vertical: 8.0,
-                  ),
-                  child: Row(
-                    children: [
-                      Expanded(
-                        child: Container(
-                          padding: const EdgeInsets.all(16),
-                          decoration: BoxDecoration(
-                            color: Colors.white,
-                            borderRadius: BorderRadius.circular(22),
-                            boxShadow: AppDecorations.cardShadow,
-                          ),
-                          child: Column(
-                            crossAxisAlignment: CrossAxisAlignment.start,
-                            children: [
-                              const Row(
-                                children: [
-                                  Icon(
-                                    Icons.pets_rounded,
-                                    size: 16,
-                                    color: AppColors.primary,
-                                  ),
-                                  SizedBox(width: 6),
-                                  Text(
-                                    "Today's Visits",
-                                    style: TextStyle(
-                                      color: Colors.grey,
-                                      fontSize: 13,
-                                      fontWeight: FontWeight.w600,
-                                    ),
-                                  ),
-                                ],
-                              ),
-                              const SizedBox(height: 8),
-                              Text(
-                                "$totalVisits visits",
-                                style: const TextStyle(
-                                  fontSize: 20,
-                                  fontWeight: FontWeight.bold,
-                                  color: AppColors.primary,
-                                ),
-                              ),
-                            ],
-                          ),
-                        ),
-                      ),
-                      const SizedBox(width: 12),
-                      Expanded(
-                        child: Container(
-                          padding: const EdgeInsets.all(16),
-                          decoration: BoxDecoration(
-                            color: Colors.white,
-                            borderRadius: BorderRadius.circular(22),
-                            boxShadow: AppDecorations.cardShadow,
-                          ),
-                          child: Column(
-                            crossAxisAlignment: CrossAxisAlignment.start,
-                            children: [
-                              const Row(
-                                children: [
-                                  Icon(
-                                    Icons.timer_outlined,
-                                    size: 16,
-                                    color: AppColors.primary,
-                                  ),
-                                  SizedBox(width: 6),
-                                  Text(
-                                    "Avg Dwell Time",
-                                    style: TextStyle(
-                                      color: Colors.grey,
-                                      fontSize: 13,
-                                      fontWeight: FontWeight.w600,
-                                    ),
-                                  ),
-                                ],
-                              ),
-                              const SizedBox(height: 8),
-                              AnimatedSwitcher(
-                                duration: const Duration(milliseconds: 180),
-                                child: Text(
-                                  _dwellUnit == DwellUnit.seconds
-                                      ? "$avgSec sec"
-                                      : "${avgMin.toStringAsFixed(1)} min",
-                                  key: ValueKey(_dwellUnit),
-                                  style: const TextStyle(
-                                    fontSize: 20,
-                                    fontWeight: FontWeight.bold,
-                                    color: AppColors.primary,
-                                  ),
-                                ),
-                              ),
-                            ],
-                          ),
-                        ),
-                      ),
+                      // Behavioral Insights + Summary (driven by database data)
+                      _buildInsightsAndSummary(visits),
+                      const SizedBox(height: 28),
                     ],
-                  ),
-                ),
-                const SizedBox(height: 28),
-              ],
-            );
-          },
-        ),
-      ),
+                  );
+                },
+              ),
+            ),
           ),
         ],
       ),
