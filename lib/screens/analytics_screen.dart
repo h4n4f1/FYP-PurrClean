@@ -2,29 +2,15 @@ import 'package:flutter/material.dart';
 import 'package:fl_chart/fl_chart.dart';
 import 'package:firebase_database/firebase_database.dart';
 import '../services/device_status_service.dart';
+import '../services/behavior_insights_service.dart';
 import '../services/sensor_service.dart';
 import '../theme/app_styles.dart';
+import '../widgets/behavioral_insights_card.dart';
 import '../widgets/page_header.dart';
 
 enum AnalyticsPeriod { daily, weekly, monthly }
 
 enum DwellUnit { minutes, seconds }
-
-class BehavioralInsight {
-  final IconData icon;
-  final Color iconColor;
-  final String title;
-  final String severity; // 'high' | 'medium' | 'low'
-  final String description;
-
-  const BehavioralInsight({
-    required this.icon,
-    required this.iconColor,
-    required this.title,
-    required this.severity,
-    required this.description,
-  });
-}
 
 class AnalyticsScreen extends StatefulWidget {
   final String deviceId;
@@ -45,62 +31,6 @@ class _AnalyticsScreenState extends State<AnalyticsScreen> {
   Stream<DatabaseEvent>? _summaryStream; // devices/{id}/daily_summary
   String? _streamDeviceId;
   String? _backfilledDeviceId;
-  List<BehavioralInsight> _deriveInsights(List<VisitRecord> visits) {
-    if (visits.isEmpty) {
-      return const [
-        BehavioralInsight(
-          icon: Icons.info_outline,
-          iconColor: Colors.blue,
-          title: "Awaiting Live Box Activity",
-          severity: "low",
-          description:
-              "No elimination visits recorded for today. Live behavioral insights will appear once your cat uses the box.",
-        ),
-      ];
-    }
-
-    final List<BehavioralInsight> generated = [];
-    final extended = visits.where((v) => v.durationMinutes >= 3.0).toList();
-    if (extended.isNotEmpty) {
-      generated.add(
-        BehavioralInsight(
-          icon: Icons.warning_amber_rounded,
-          iconColor: Colors.orange,
-          title: "Extended Dwell Events Detected",
-          severity: "medium",
-          description:
-              "${extended.length} visit(s) exceeded the 3-minute dwell threshold (e.g. at ${extended.first.timeLabel}).",
-        ),
-      );
-    }
-
-    final highGas = visits.where((v) => v.ammoniaPpm >= 30.0 || v.odorIndex >= 80.0).toList();
-    if (highGas.isNotEmpty) {
-      generated.add(
-        BehavioralInsight(
-          icon: Icons.air_rounded,
-          iconColor: Colors.deepOrange,
-          title: "Elevated Gas Readings",
-          severity: "medium",
-          description:
-              "Elevated ammonia or odor levels detected during ${highGas.length} event(s). Ventilation fan activated.",
-        ),
-      );
-    }
-
-    generated.add(
-      BehavioralInsight(
-        icon: Icons.check_circle_outline,
-        iconColor: Colors.green,
-        title: "Daily Elimination Frequency",
-        severity: "low",
-        description:
-            "${visits.length} total visit(s) recorded across today's monitoring window.",
-      ),
-    );
-
-    return generated;
-  }
 
   @override
   void initState() {
@@ -362,12 +292,20 @@ class _AnalyticsScreenState extends State<AnalyticsScreen> {
 
   // Unified Designer Color Palette for Graph 1, Graph 2 & Graph 3
   static const Color _kSafeAmber = Color(0xFFFFB74D); // Normal Dwell / Deposit
-  static const Color _kDangerRed = Color(0xFFE53935); // Extended Dwell / Danger Odor (>=80%)
-  static const Color _kSafeAmmonia = Color(0xFF7E57C2); // Safe Ammonia (<30 ppm) - Purple
-  static const Color _kDangerAmmonia = Color(0xFFFF8A00); // Danger Ammonia (>=30 ppm) - Orange
+  static const Color _kDangerRed = Color(
+    0xFFE53935,
+  ); // Extended Dwell / Danger Odor (>=80%)
+  static const Color _kSafeAmmonia = Color(
+    0xFF7E57C2,
+  ); // Safe Ammonia (<30 ppm) - Purple
+  static const Color _kDangerAmmonia = Color(
+    0xFFFF8A00,
+  ); // Danger Ammonia (>=30 ppm) - Orange
   static const Color _kSafeOdor = Color(0xFF26A69A); // Safe Odor (<80%) - Teal
   static const Color _kTrendOrange = Color(0xFFE65100); // Trend Line & Accent
-  static const Color _kTooltipBg = Color(0xFF263238); // Unified Tooltip & Axis Label Color
+  static const Color _kTooltipBg = Color(
+    0xFF263238,
+  ); // Unified Tooltip & Axis Label Color
 
   int? _selectedHeatmapRow;
   int? _selectedHeatmapHour;
@@ -592,14 +530,10 @@ class _AnalyticsScreenState extends State<AnalyticsScreen> {
                   drawVerticalLine: true,
                   horizontalInterval: yInterval,
                   verticalInterval: 4,
-                  getDrawingHorizontalLine: (value) => FlLine(
-                    color: Colors.grey.shade200,
-                    strokeWidth: 1,
-                  ),
-                  getDrawingVerticalLine: (value) => FlLine(
-                    color: Colors.grey.shade100,
-                    strokeWidth: 1,
-                  ),
+                  getDrawingHorizontalLine: (value) =>
+                      FlLine(color: Colors.grey.shade200, strokeWidth: 1),
+                  getDrawingVerticalLine: (value) =>
+                      FlLine(color: Colors.grey.shade100, strokeWidth: 1),
                 ),
                 extraLinesData: ExtraLinesData(
                   horizontalLines: [
@@ -617,9 +551,8 @@ class _AnalyticsScreenState extends State<AnalyticsScreen> {
                           fontWeight: FontWeight.bold,
                           color: _kDangerRed,
                         ),
-                        labelResolver: (_) => inSeconds
-                            ? 'Extended Alert'
-                            : 'Extended Alert',
+                        labelResolver: (_) =>
+                            inSeconds ? 'Extended Alert' : 'Extended Alert',
                       ),
                     ),
                   ],
@@ -811,8 +744,10 @@ class _AnalyticsScreenState extends State<AnalyticsScreen> {
 
     final List<BarChartGroupData> barGroups = List.generate(visits.length, (i) {
       final v = visits[i];
-      final scaledAmmonia =
-          (v.ammoniaPpm * ammoniaToChartFactor).clamp(0.0, maxOdorScale);
+      final scaledAmmonia = (v.ammoniaPpm * ammoniaToChartFactor).clamp(
+        0.0,
+        maxOdorScale,
+      );
       final scaledOdor = v.odorIndex.clamp(0.0, maxOdorScale);
 
       final bool isAmmoniaDangerous = v.ammoniaPpm >= dangerAmmoniaPpm;
@@ -942,10 +877,8 @@ class _AnalyticsScreenState extends State<AnalyticsScreen> {
                   show: true,
                   drawVerticalLine: false,
                   horizontalInterval: 20,
-                  getDrawingHorizontalLine: (value) => FlLine(
-                    color: Colors.grey.shade200,
-                    strokeWidth: 1,
-                  ),
+                  getDrawingHorizontalLine: (value) =>
+                      FlLine(color: Colors.grey.shade200, strokeWidth: 1),
                 ),
                 extraLinesData: ExtraLinesData(
                   horizontalLines: [
@@ -1091,7 +1024,8 @@ class _AnalyticsScreenState extends State<AnalyticsScreen> {
                           return const SizedBox.shrink();
                         }
                         final v = visits[idx];
-                        final isDanger = v.ammoniaPpm >= dangerAmmoniaPpm ||
+                        final isDanger =
+                            v.ammoniaPpm >= dangerAmmoniaPpm ||
                             v.odorIndex >= dangerOdorPercent;
                         return Padding(
                           padding: const EdgeInsets.only(top: 6),
@@ -1157,8 +1091,9 @@ class _AnalyticsScreenState extends State<AnalyticsScreen> {
     const double alertGrams = 60.0;
     final double barWidth = visits.length > 6 ? 12.0 : 15.0;
 
-    final int alertCount =
-        visits.where((v) => v.depositGrams >= alertGrams).length;
+    final int alertCount = visits
+        .where((v) => v.depositGrams >= alertGrams)
+        .length;
 
     final List<BarChartGroupData> barGroups = List.generate(visits.length, (i) {
       final v = visits[i];
@@ -1265,10 +1200,8 @@ class _AnalyticsScreenState extends State<AnalyticsScreen> {
                   show: true,
                   drawVerticalLine: false,
                   horizontalInterval: 20,
-                  getDrawingHorizontalLine: (value) => FlLine(
-                    color: Colors.grey.shade200,
-                    strokeWidth: 1,
-                  ),
+                  getDrawingHorizontalLine: (value) =>
+                      FlLine(color: Colors.grey.shade200, strokeWidth: 1),
                 ),
                 extraLinesData: ExtraLinesData(
                   horizontalLines: [
@@ -1452,10 +1385,7 @@ class _AnalyticsScreenState extends State<AnalyticsScreen> {
               const SizedBox(height: 2),
               Text(
                 subtitle,
-                style: const TextStyle(
-                  fontSize: 11.5,
-                  color: Colors.black54,
-                ),
+                style: const TextStyle(fontSize: 11.5, color: Colors.black54),
               ),
             ],
           ),
@@ -1700,11 +1630,7 @@ class _AnalyticsScreenState extends State<AnalyticsScreen> {
         children: [
           Row(
             children: [
-              const Icon(
-                Icons.tune_rounded,
-                size: 15,
-                color: _kTooltipBg,
-              ),
+              const Icon(Icons.tune_rounded, size: 15, color: _kTooltipBg),
               const SizedBox(width: 6),
               const Text(
                 "Visual Aid: Status Threshold Scale",
@@ -1890,7 +1816,8 @@ class _AnalyticsScreenState extends State<AnalyticsScreen> {
     String moderateLabel,
     String alertLabel,
     String triggerNote,
-  }) _getGraphTipDetails(String title, String subtitle) {
+  })
+  _getGraphTipDetails(String title, String subtitle) {
     switch (title) {
       case "Chronological Visit & Dwell Timeline":
         return (
@@ -1983,8 +1910,7 @@ class _AnalyticsScreenState extends State<AnalyticsScreen> {
           popupTitle: "Litter Cleanliness & Fan Runtime",
           whatItShows:
               "How many minutes the ventilation fan needs to run to pull box air back to fresh levels after a visit.",
-          normalRange:
-              "45 to 90 seconds on fresh litter.",
+          normalRange: "45 to 90 seconds on fresh litter.",
           warningSigns:
               "• Purge times steadily exceeding 3 to 4 minutes. This means the litter substrate is saturated with residual odor and moisture and requires a full cleanout and refill.",
           lowLabel: "45s – 90s",
@@ -2029,8 +1955,7 @@ class _AnalyticsScreenState extends State<AnalyticsScreen> {
         return (
           badge: "3. Long-Term Median Gas Concentration",
           popupTitle: "Chronic Gas Baselines",
-          whatItShows:
-              "The rolling monthly average of waste gas intensity.",
+          whatItShows: "The rolling monthly average of waste gas intensity.",
           normalRange:
               "Flat, predictable levels matching your cat's standard diet.",
           warningSigns:
@@ -2059,10 +1984,7 @@ class _AnalyticsScreenState extends State<AnalyticsScreen> {
     }
   }
 
-  Widget _buildThresholdBanner({
-    required String text,
-    required bool hasAlert,
-  }) {
+  Widget _buildThresholdBanner({required String text, required bool hasAlert}) {
     final Color bgColor = hasAlert
         ? const Color(0xFFFFF3E0)
         : const Color(0xFFF5F5F5);
@@ -2192,19 +2114,27 @@ class _AnalyticsScreenState extends State<AnalyticsScreen> {
   ) {
     final List<WeeklyDayRecord> weeklyDays =
         _sensorService.buildWeeklyRecords(summaries, events);
-    if (weeklyDays.isEmpty) {
-      return _buildEmptyChartState(
-        icon: Icons.calendar_view_week_rounded,
-        title: 'No Weekly Data Recorded',
-        message:
-            'Weekly box patterns and hygiene metrics will appear once weekly history is recorded in your database.',
-      );
-    }
     return Column(
       children: [
-        _buildWeeklyOutputStackedChartCard(weeklyDays),
-        _buildWeeklyFrequencyVsStrainingCard(weeklyDays),
-        _buildWeeklyFanPurgeStepChartCard(weeklyDays),
+        if (weeklyDays.isEmpty)
+          _buildEmptyChartState(
+            icon: Icons.calendar_view_week_rounded,
+            title: 'No Weekly Data Recorded',
+            message:
+                'Weekly box patterns and hygiene metrics will appear once weekly history is recorded in your database.',
+          )
+        else ...[
+          _buildWeeklyOutputStackedChartCard(weeklyDays),
+          _buildWeeklyFrequencyVsStrainingCard(weeklyDays),
+          _buildWeeklyFanPurgeStepChartCard(weeklyDays),
+        ],
+        BehavioralInsightsCard(
+          periodLabel: 'Last 7 days',
+          insights: BehaviorInsightsService.weekly(weeklyDays),
+        ),
+        SummaryMetricRow(
+          metrics: BehaviorInsightsService.weeklySummary(weeklyDays),
+        ),
       ],
     );
   }
@@ -2218,8 +2148,9 @@ class _AnalyticsScreenState extends State<AnalyticsScreen> {
         .where((d) => d.totalGrams >= highOutputAlertGrams)
         .length;
 
-    final List<BarChartGroupData> barGroups =
-        List.generate(weeklyDays.length, (i) {
+    final List<BarChartGroupData> barGroups = List.generate(weeklyDays.length, (
+      i,
+    ) {
       final d = weeklyDays[i];
       final urineG = d.urineGrams.clamp(0.0, maxDailyGrams);
       final totalG = (d.urineGrams + d.fecesGrams).clamp(0.0, maxDailyGrams);
@@ -2332,10 +2263,8 @@ class _AnalyticsScreenState extends State<AnalyticsScreen> {
                   show: true,
                   drawVerticalLine: false,
                   horizontalInterval: 60,
-                  getDrawingHorizontalLine: (value) => FlLine(
-                    color: Colors.grey.shade200,
-                    strokeWidth: 1,
-                  ),
+                  getDrawingHorizontalLine: (value) =>
+                      FlLine(color: Colors.grey.shade200, strokeWidth: 1),
                 ),
                 extraLinesData: ExtraLinesData(
                   horizontalLines: [
@@ -2488,7 +2417,9 @@ class _AnalyticsScreenState extends State<AnalyticsScreen> {
   /// Weekly Graph 2: Visit Frequency vs. Straining Ratio (Grouped Bar + Line)
   /// X-axis: Days of the week (Mon – Sun)
   /// Y-axis: Left: Total visit count (0..10); Right: Total minutes spent straining/dwelling (0..25m)
-  Widget _buildWeeklyFrequencyVsStrainingCard(List<WeeklyDayRecord> weeklyDays) {
+  Widget _buildWeeklyFrequencyVsStrainingCard(
+    List<WeeklyDayRecord> weeklyDays,
+  ) {
     // Internal chart scale is 0..25 (matching Right Y-axis: 0..25 minutes).
     // Left Y-axis (0..10 visits) maps 1 visit -> 2.5 chart units.
     const double maxDwellMinutes = 25.0;
@@ -2518,8 +2449,10 @@ class _AnalyticsScreenState extends State<AnalyticsScreen> {
             FlSpot(i - barOffset, 0),
             FlSpot(
               i - barOffset,
-              (weeklyDays[i].totalVisits * visitsToChartFactor)
-                  .clamp(0.0, maxDwellMinutes),
+              (weeklyDays[i].totalVisits * visitsToChartFactor).clamp(
+                0.0,
+                maxDwellMinutes,
+              ),
             ),
           ],
           isCurved: false,
@@ -2671,14 +2604,10 @@ class _AnalyticsScreenState extends State<AnalyticsScreen> {
                   drawVerticalLine: true,
                   horizontalInterval: 5,
                   verticalInterval: 1,
-                  getDrawingHorizontalLine: (value) => FlLine(
-                    color: Colors.grey.shade200,
-                    strokeWidth: 1,
-                  ),
-                  getDrawingVerticalLine: (value) => FlLine(
-                    color: Colors.grey.shade100,
-                    strokeWidth: 1,
-                  ),
+                  getDrawingHorizontalLine: (value) =>
+                      FlLine(color: Colors.grey.shade200, strokeWidth: 1),
+                  getDrawingVerticalLine: (value) =>
+                      FlLine(color: Colors.grey.shade100, strokeWidth: 1),
                 ),
                 extraLinesData: ExtraLinesData(
                   horizontalLines: [
@@ -2724,8 +2653,8 @@ class _AnalyticsScreenState extends State<AnalyticsScreen> {
                       reservedSize: 32,
                       interval: 5,
                       getTitlesWidget: (value, meta) {
-                        final visitsCount =
-                            (value / visitsToChartFactor).round();
+                        final visitsCount = (value / visitsToChartFactor)
+                            .round();
                         return SizedBox(
                           width: 32,
                           child: Text(
@@ -2883,9 +2812,7 @@ class _AnalyticsScreenState extends State<AnalyticsScreen> {
 
     final List<FlSpot> stepSpots = List.generate(weeklyDays.length, (i) {
       final d = weeklyDays[i];
-      final yVal = inSeconds
-          ? d.fanPurgeSeconds.toDouble()
-          : d.fanPurgeMinutes;
+      final yVal = inSeconds ? d.fanPurgeSeconds.toDouble() : d.fanPurgeMinutes;
       return FlSpot(i.toDouble(), yVal.clamp(0.0, maxY));
     });
 
@@ -2964,14 +2891,10 @@ class _AnalyticsScreenState extends State<AnalyticsScreen> {
                   drawVerticalLine: true,
                   horizontalInterval: yInterval,
                   verticalInterval: 1,
-                  getDrawingHorizontalLine: (value) => FlLine(
-                    color: Colors.grey.shade200,
-                    strokeWidth: 1,
-                  ),
-                  getDrawingVerticalLine: (value) => FlLine(
-                    color: Colors.grey.shade100,
-                    strokeWidth: 1,
-                  ),
+                  getDrawingHorizontalLine: (value) =>
+                      FlLine(color: Colors.grey.shade200, strokeWidth: 1),
+                  getDrawingVerticalLine: (value) =>
+                      FlLine(color: Colors.grey.shade100, strokeWidth: 1),
                 ),
                 extraLinesData: ExtraLinesData(
                   horizontalLines: [
@@ -3177,19 +3100,27 @@ class _AnalyticsScreenState extends State<AnalyticsScreen> {
   ) {
     final List<MonthlyDayRecord> monthlyDays =
         _sensorService.buildMonthlyRecords(summaries, events);
-    if (monthlyDays.isEmpty) {
-      return _buildEmptyChartState(
-        icon: Icons.calendar_month_rounded,
-        title: 'No Monthly Data Recorded',
-        message:
-            'Monthly health records and weight trajectory will appear once monthly history is recorded in your database.',
-      );
-    }
     return Column(
       children: [
-        _buildMonthlyWeightTrajectoryCard(monthlyDays),
-        _buildMonthlyCircadianHeatmapCard(monthlyDays),
-        _buildMonthlyGasBaselineTrendCard(monthlyDays),
+        if (monthlyDays.isEmpty)
+          _buildEmptyChartState(
+            icon: Icons.calendar_month_rounded,
+            title: 'No Monthly Data Recorded',
+            message:
+                'Monthly health records and weight trajectory will appear once monthly history is recorded in your database.',
+          )
+        else ...[
+          _buildMonthlyWeightTrajectoryCard(monthlyDays),
+          _buildMonthlyCircadianHeatmapCard(monthlyDays),
+          _buildMonthlyGasBaselineTrendCard(monthlyDays),
+        ],
+        BehavioralInsightsCard(
+          periodLabel: 'Last 30 days',
+          insights: BehaviorInsightsService.monthly(monthlyDays),
+        ),
+        SummaryMetricRow(
+          metrics: BehaviorInsightsService.monthlySummary(monthlyDays),
+        ),
       ],
     );
   }
@@ -3316,14 +3247,10 @@ class _AnalyticsScreenState extends State<AnalyticsScreen> {
                   drawVerticalLine: true,
                   horizontalInterval: weightIntervalKg,
                   verticalInterval: 5,
-                  getDrawingHorizontalLine: (value) => FlLine(
-                    color: Colors.grey.shade200,
-                    strokeWidth: 1,
-                  ),
-                  getDrawingVerticalLine: (value) => FlLine(
-                    color: Colors.grey.shade100,
-                    strokeWidth: 1,
-                  ),
+                  getDrawingHorizontalLine: (value) =>
+                      FlLine(color: Colors.grey.shade200, strokeWidth: 1),
+                  getDrawingVerticalLine: (value) =>
+                      FlLine(color: Colors.grey.shade100, strokeWidth: 1),
                 ),
                 extraLinesData: ExtraLinesData(
                   horizontalLines: [
@@ -3592,7 +3519,7 @@ class _AnalyticsScreenState extends State<AnalyticsScreen> {
     final int activeCount = matrix[activeRow][activeHour];
     final bool activeIsNocturnalAlert =
         (activeHour >= 1 && activeHour <= 4 && activeCount >= 4) ||
-            activeCount >= 8;
+        activeCount >= 8;
     final String activeHourStr =
         '${activeHour.toString().padLeft(2, '0')}:00–${activeHour.toString().padLeft(2, '0')}:59';
 
@@ -3766,8 +3693,9 @@ class _AnalyticsScreenState extends State<AnalyticsScreen> {
                           children: List.generate(6, (r) {
                             return Expanded(
                               child: Padding(
-                                padding:
-                                    const EdgeInsets.symmetric(vertical: 1.8),
+                                padding: const EdgeInsets.symmetric(
+                                  vertical: 1.8,
+                                ),
                                 child: Row(
                                   crossAxisAlignment:
                                       CrossAxisAlignment.stretch,
@@ -3787,8 +3715,9 @@ class _AnalyticsScreenState extends State<AnalyticsScreen> {
                                           ),
                                           decoration: BoxDecoration(
                                             color: cellColorFor(r, h, count),
-                                            borderRadius:
-                                                BorderRadius.circular(3.5),
+                                            borderRadius: BorderRadius.circular(
+                                              3.5,
+                                            ),
                                             border: isSelected
                                                 ? Border.all(
                                                     color: _kTooltipBg,
@@ -3934,8 +3863,10 @@ class _AnalyticsScreenState extends State<AnalyticsScreen> {
         .map(
           (d) => FlSpot(
             d.dayOfMonth.toDouble(),
-            (d.medianAmmoniaPpm * ammoniaToChartFactor)
-                .clamp(0.0, maxOdorScale),
+            (d.medianAmmoniaPpm * ammoniaToChartFactor).clamp(
+              0.0,
+              maxOdorScale,
+            ),
           ),
         )
         .toList();
@@ -4041,14 +3972,10 @@ class _AnalyticsScreenState extends State<AnalyticsScreen> {
                   drawVerticalLine: true,
                   horizontalInterval: 20,
                   verticalInterval: 5,
-                  getDrawingHorizontalLine: (value) => FlLine(
-                    color: Colors.grey.shade200,
-                    strokeWidth: 1,
-                  ),
-                  getDrawingVerticalLine: (value) => FlLine(
-                    color: Colors.grey.shade100,
-                    strokeWidth: 1,
-                  ),
+                  getDrawingHorizontalLine: (value) =>
+                      FlLine(color: Colors.grey.shade200, strokeWidth: 1),
+                  getDrawingVerticalLine: (value) =>
+                      FlLine(color: Colors.grey.shade100, strokeWidth: 1),
                 ),
                 extraLinesData: ExtraLinesData(
                   horizontalLines: [
@@ -4238,7 +4165,8 @@ class _AnalyticsScreenState extends State<AnalyticsScreen> {
                         }
                         final d = monthlyDays[idx];
                         final nh3Alert = d.medianAmmoniaPpm >= dangerAmmoniaPpm;
-                        final odorAlert = d.medianOdorIndex >= dangerOdorPercent;
+                        final odorAlert =
+                            d.medianOdorIndex >= dangerOdorPercent;
                         return LineTooltipItem(
                           'Day ${d.dayOfMonth}\n'
                           'NH₃: ${d.medianAmmoniaPpm.toStringAsFixed(1)} ppm${nh3Alert ? " ⚠️" : ""}\n'
@@ -4274,8 +4202,9 @@ class _AnalyticsScreenState extends State<AnalyticsScreen> {
                           radius: isDanger ? 3.8 : 3.0,
                           color: Colors.white,
                           strokeWidth: 2.2,
-                          strokeColor:
-                              isDanger ? _kDangerAmmonia : _kSafeAmmonia,
+                          strokeColor: isDanger
+                              ? _kDangerAmmonia
+                              : _kSafeAmmonia,
                         );
                       },
                     ),
@@ -4322,6 +4251,32 @@ class _AnalyticsScreenState extends State<AnalyticsScreen> {
     );
   }
 
+  /// Daily behavioral insights + summary cards.
+  /// Weekly / Monthly render their own insights inside their section
+  /// StreamBuilders so each Firebase stream has exactly ONE listener.
+  Widget _buildInsightsAndSummary(List<VisitRecord> visits) {
+    switch (_selectedPeriod) {
+      case AnalyticsPeriod.daily:
+        return Column(
+          children: [
+            BehavioralInsightsCard(
+              periodLabel: 'Today',
+              insights: BehaviorInsightsService.daily(visits),
+            ),
+            SummaryMetricRow(
+              metrics: BehaviorInsightsService.dailySummary(
+                visits,
+                inSeconds: _dwellUnit == DwellUnit.seconds,
+              ),
+            ),
+          ],
+        );
+      case AnalyticsPeriod.weekly:
+      case AnalyticsPeriod.monthly:
+        return const SizedBox.shrink();
+    }
+  }
+
   @override
   Widget build(BuildContext context) {
     _ensureVisitStream();
@@ -4336,272 +4291,81 @@ class _AnalyticsScreenState extends State<AnalyticsScreen> {
             bottom: _buildPeriodToggle(),
           ),
           Expanded(
-      child: SingleChildScrollView(
-        child: StreamBuilder<DatabaseEvent>(
-          stream: _visitStream,
-          builder: (context, snapshot) {
-            return StreamBuilder<DatabaseEvent>(
-              stream: _summaryStream,
-              builder: (context, summarySnapshot) {
-                List<VisitRecord> visits = [];
-                List<LitterEvent> events = [];
+            child: SingleChildScrollView(
+              child: StreamBuilder<DatabaseEvent>(
+                stream: _visitStream,
+                builder: (context, snapshot) {
+                  return StreamBuilder<DatabaseEvent>(
+                    stream: _summaryStream,
+                    builder: (context, summarySnapshot) {
+                      List<VisitRecord> visits = [];
+                      List<LitterEvent> events = [];
 
-                if (snapshot.hasData && snapshot.data?.snapshot.value != null) {
-                  events = _sensorService.parseEvents(snapshot.data!.snapshot);
-                  visits = _sensorService.todayVisits(events);
-                }
+                      if (snapshot.hasData &&
+                          snapshot.data?.snapshot.value != null) {
+                        events = _sensorService.parseEvents(
+                          snapshot.data!.snapshot,
+                        );
+                        visits = _sensorService.todayVisits(events);
+                      }
 
-                final summaries = _sensorService
-                    .parseDailySummaries(summarySnapshot.data?.snapshot);
-                if (summarySnapshot.hasData) {
-                  _maybeBackfillSummaries(events, summaries);
-                }
+                      final summaries = _sensorService.parseDailySummaries(
+                        summarySnapshot.data?.snapshot,
+                      );
+                      if (summarySnapshot.hasData) {
+                        _maybeBackfillSummaries(events, summaries);
+                      }
 
-                // Compute live summary metrics from visits if available
-                final int totalVisits = visits.length;
-                final double avgMin = totalVisits > 0
-                    ? visits.fold<double>(0, (sum, v) => sum + v.durationMinutes) /
-                        totalVisits
-                    : 0.0;
-                final int avgSec = totalVisits > 0
-                    ? (visits.fold<int>(0, (sum, v) => sum + v.durationSeconds) /
-                            totalVisits)
-                        .round()
-                    : 0;
-
-                return Column(
-                  children: [
-                    const SizedBox(height: 10),
-
-                    // Show Daily, Weekly, or Monthly graphs based on selected period
-                    if (_selectedPeriod == AnalyticsPeriod.daily)
-                      (snapshot.connectionState == ConnectionState.waiting &&
-                              !snapshot.hasData)
-                          ? Container(
-                              height: 220,
-                              margin: const EdgeInsets.symmetric(
-                                horizontal: 16,
-                                vertical: 8,
-                              ),
-                              decoration: BoxDecoration(
-                                color: Colors.white,
-                                borderRadius: BorderRadius.circular(20),
-                              ),
-                              child: const Center(
-                                child: CircularProgressIndicator(
-                                  color: AppColors.primary,
-                                ),
-                              ),
-                            )
-                          : Column(
-                              children: [
-                                _buildComboDwellChartCard(visits),
-                                _buildGasFingerprintChartCard(visits),
-                                _buildDepositMassChartCard(visits),
-                              ],
-                            )
-                    else if (_selectedPeriod == AnalyticsPeriod.weekly)
-                      _buildWeeklySection(events, summaries)
-                    else
-                      _buildMonthlySection(events, summaries),
-
-                // Behavioral Insights Section
-                Container(
-                  margin: const EdgeInsets.symmetric(
-                    horizontal: 16,
-                    vertical: 8,
-                  ),
-                  padding: const EdgeInsets.all(18),
-                  decoration: BoxDecoration(
-                    color: Colors.white,
-                    borderRadius: BorderRadius.circular(22),
-                    boxShadow: AppDecorations.cardShadow,
-                  ),
-                  child: Column(
-                    crossAxisAlignment: CrossAxisAlignment.start,
-                    children: [
-                      const Row(
+                      return Column(
                         children: [
-                          CircleAvatar(
-                            backgroundColor: AppColors.iconBgOrange,
-                            child: Icon(
-                              Icons.insights_rounded,
-                              color: AppColors.primary,
-                            ),
-                          ),
-                          SizedBox(width: 12),
-                          Text(
-                            "Behavioral Insights",
-                            style: AppTextStyles.cardTitle,
-                          ),
-                        ],
-                      ),
-                      const SizedBox(height: 14),
-                      ..._deriveInsights(visits).map(
-                        (insight) => Padding(
-                          padding: const EdgeInsets.symmetric(vertical: 7.0),
-                          child: Row(
-                            crossAxisAlignment: CrossAxisAlignment.start,
-                            children: [
-                              Container(
-                                padding: const EdgeInsets.all(7),
-                                decoration: BoxDecoration(
-                                  color: insight.iconColor
-                                      .withValues(alpha: 0.12),
-                                  borderRadius: BorderRadius.circular(10),
-                                ),
-                                child: Icon(
-                                  insight.icon,
-                                  color: insight.iconColor,
-                                  size: 18,
-                                ),
-                              ),
-                              const SizedBox(width: 10),
-                              Expanded(
-                                child: Column(
-                                  crossAxisAlignment: CrossAxisAlignment.start,
-                                  children: [
-                                    Text(
-                                      insight.title,
-                                      style: const TextStyle(
-                                        fontWeight: FontWeight.bold,
-                                        color: AppColors.textDark,
-                                        fontSize: 14,
-                                      ),
-                                    ),
-                                    const SizedBox(height: 2),
-                                    Text(
-                                      insight.description,
-                                      style: const TextStyle(
-                                        color: Colors.black54,
-                                        fontSize: 12.5,
-                                        height: 1.35,
-                                      ),
-                                    ),
-                                  ],
-                                ),
-                              ),
-                            ],
-                          ),
-                        ),
-                      ),
-                    ],
-                  ),
-                ),
+                          const SizedBox(height: 10),
 
-                // Summary Metric Cards
-                Padding(
-                  padding: const EdgeInsets.symmetric(
-                    horizontal: 16.0,
-                    vertical: 8.0,
-                  ),
-                  child: Row(
-                    children: [
-                      Expanded(
-                        child: Container(
-                          padding: const EdgeInsets.all(16),
-                          decoration: BoxDecoration(
-                            color: Colors.white,
-                            borderRadius: BorderRadius.circular(22),
-                            boxShadow: AppDecorations.cardShadow,
-                          ),
-                          child: Column(
-                            crossAxisAlignment: CrossAxisAlignment.start,
-                            children: [
-                              const Row(
-                                children: [
-                                  Icon(
-                                    Icons.pets_rounded,
-                                    size: 16,
-                                    color: AppColors.primary,
-                                  ),
-                                  SizedBox(width: 6),
-                                  Text(
-                                    "Today's Visits",
-                                    style: TextStyle(
-                                      color: Colors.grey,
-                                      fontSize: 13,
-                                      fontWeight: FontWeight.w600,
+                          // Show Daily, Weekly, or Monthly graphs based on selected period
+                          if (_selectedPeriod == AnalyticsPeriod.daily)
+                            (snapshot.connectionState ==
+                                        ConnectionState.waiting &&
+                                    !snapshot.hasData)
+                                ? Container(
+                                    height: 220,
+                                    margin: const EdgeInsets.symmetric(
+                                      horizontal: 16,
+                                      vertical: 8,
                                     ),
-                                  ),
-                                ],
-                              ),
-                              const SizedBox(height: 8),
-                              Text(
-                                "$totalVisits visits",
-                                style: const TextStyle(
-                                  fontSize: 20,
-                                  fontWeight: FontWeight.bold,
-                                  color: AppColors.primary,
-                                ),
-                              ),
-                            ],
-                          ),
-                        ),
-                      ),
-                      const SizedBox(width: 12),
-                      Expanded(
-                        child: Container(
-                          padding: const EdgeInsets.all(16),
-                          decoration: BoxDecoration(
-                            color: Colors.white,
-                            borderRadius: BorderRadius.circular(22),
-                            boxShadow: AppDecorations.cardShadow,
-                          ),
-                          child: Column(
-                            crossAxisAlignment: CrossAxisAlignment.start,
-                            children: [
-                              const Row(
-                                children: [
-                                  Icon(
-                                    Icons.timer_outlined,
-                                    size: 16,
-                                    color: AppColors.primary,
-                                  ),
-                                  SizedBox(width: 6),
-                                  Text(
-                                    "Avg Dwell Time",
-                                    style: TextStyle(
-                                      color: Colors.grey,
-                                      fontSize: 13,
-                                      fontWeight: FontWeight.w600,
+                                    decoration: BoxDecoration(
+                                      color: Colors.white,
+                                      borderRadius: BorderRadius.circular(20),
                                     ),
-                                  ),
-                                ],
-                              ),
-                              const SizedBox(height: 8),
-                              AnimatedSwitcher(
-                                duration: const Duration(milliseconds: 180),
-                                child: Text(
-                                  _dwellUnit == DwellUnit.seconds
-                                      ? "$avgSec sec"
-                                      : "${avgMin.toStringAsFixed(1)} min",
-                                  key: ValueKey(_dwellUnit),
-                                  style: const TextStyle(
-                                    fontSize: 20,
-                                    fontWeight: FontWeight.bold,
-                                    color: AppColors.primary,
-                                  ),
-                                ),
-                              ),
-                            ],
-                          ),
-                        ),
-                      ),
-                    ],
-                  ),
-                ),
-                const SizedBox(height: 28),
-              ],
-            );
-          },
-        );
-      },
-    ),
-  ),
+                                    child: const Center(
+                                      child: CircularProgressIndicator(
+                                        color: AppColors.primary,
+                                      ),
+                                    ),
+                                  )
+                                : Column(
+                                    children: [
+                                      _buildComboDwellChartCard(visits),
+                                      _buildGasFingerprintChartCard(visits),
+                                      _buildDepositMassChartCard(visits),
+                                    ],
+                                  )
+                          else if (_selectedPeriod == AnalyticsPeriod.weekly)
+                            _buildWeeklySection(events, summaries)
+                          else
+                            _buildMonthlySection(events, summaries),
+
+                          // Behavioral Insights + Summary (driven by database data)
+                          _buildInsightsAndSummary(visits),
+                          const SizedBox(height: 28),
+                        ],
+                      );
+                    },
+                  );
+                },
+              ),
+            ),
+          ),
+        ],
       ),
-    ],
-  ),
-);
+    );
   }
 }
