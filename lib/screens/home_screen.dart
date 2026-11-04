@@ -1,10 +1,10 @@
+import 'dart:async';
 import 'dart:convert';
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:firebase_database/firebase_database.dart';
 import 'package:flutter/material.dart';
 import '../add_cat_page.dart';
 import '../services/auth_service.dart';
-import '../services/device_provisioning_service.dart';
 import '../services/device_status_service.dart';
 import '../services/sensor_service.dart';
 import '../theme/app_styles.dart';
@@ -39,10 +39,10 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
   final _authService = FirebaseAuthService();
   final SensorService _sensorService = SensorService();
 
-  String _activeDeviceId = '308C';
-  bool _didAutoSeed = false;
+  String _activeDeviceId = '8426';
 
   Stream<DatabaseEvent>? _deviceStream;
+  StreamSubscription<DatabaseEvent>? _fanSub;
   String? _streamDeviceId;
 
   Stream<QuerySnapshot<Map<String, dynamic>>>? _catStream;
@@ -68,7 +68,18 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
   void _ensureStreams() {
     if (_deviceStream == null || _streamDeviceId != _activeDeviceId) {
       _streamDeviceId = _activeDeviceId;
-      _deviceStream = _sensorService.getDeviceStream(_activeDeviceId);
+      _deviceStream = _sensorService.getEventStream(_activeDeviceId);
+      _fanSub?.cancel();
+      _fanSub = _sensorService.getFanStream(_activeDeviceId).listen((event) {
+        final raw = event.snapshot.value;
+        if (!mounted || raw is! Map) return;
+        setState(() {
+          if (raw['auto_mode'] is bool) isAutoMode = raw['auto_mode'] as bool;
+          if (raw['is_running'] is bool) {
+            isFanRunning = raw['is_running'] as bool;
+          }
+        });
+      });
     }
     final uid = _authService.currentUser?.uid;
     if (uid != null && uid.isNotEmpty) {
@@ -86,21 +97,19 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
   }
 
   Future<void> _resolveActiveDevice() async {
-    final savedName =
-        await DeviceProvisioningService.instance.savedDeviceName();
-    if (savedName != null && savedName.trim().isNotEmpty && mounted) {
-      final resolvedId = DeviceStatusService.idFromName(savedName);
-      if (resolvedId != _activeDeviceId) {
-        setState(() {
-          _activeDeviceId = resolvedId;
-          _ensureStreams();
-        });
-      }
+    final resolvedId =
+        await DeviceStatusService.instance.resolveActiveDeviceId();
+    if (resolvedId != _activeDeviceId && mounted) {
+      setState(() {
+        _activeDeviceId = resolvedId;
+        _ensureStreams();
+      });
     }
   }
 
   @override
   void dispose() {
+    _fanSub?.cancel();
     WidgetsBinding.instance.removeObserver(this);
     super.dispose();
   }
@@ -203,38 +212,17 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
             List<VisitRecord> visits = [];
             double? rtdbLatestWeightKg;
 
-            final rootSnapshot = deviceSnap.data?.snapshot;
-            if (rootSnapshot != null && rootSnapshot.value is Map) {
-              final visitsSnap = rootSnapshot.child('visits');
-              if (visitsSnap.exists) {
-                visits = _sensorService.parseVisitRecords(visitsSnap);
-                final rawVisits = visitsSnap.value;
-                if (rawVisits is Map) {
-                  for (final entry in rawVisits.values) {
-                    if (entry is Map && entry['weight_g'] is num) {
-                      rtdbLatestWeightKg =
-                          (entry['weight_g'] as num).toDouble() / 1000.0;
-                    }
-                  }
+            final eventsSnapshot = deviceSnap.data?.snapshot;
+            if (eventsSnapshot != null && eventsSnapshot.value != null) {
+              final events = _sensorService.parseEvents(eventsSnapshot);
+              visits = _sensorService.todayVisits(events);
+              // Most recent stable cat weight from any event
+              for (final e in events.reversed) {
+                if (e.catWeightGrams > 0) {
+                  rtdbLatestWeightKg = e.catWeightGrams / 1000.0;
+                  break;
                 }
               }
-
-              final fanSnap = rootSnapshot.child('fan');
-              if (fanSnap.exists && fanSnap.value is Map) {
-                final fanMap = Map<dynamic, dynamic>.from(fanSnap.value as Map);
-                if (fanMap['auto_mode'] is bool) {
-                  isAutoMode = fanMap['auto_mode'] as bool;
-                }
-                if (fanMap['is_running'] is bool) {
-                  isFanRunning = fanMap['is_running'] as bool;
-                }
-              }
-            } else if (deviceSnap.connectionState == ConnectionState.active &&
-                !_didAutoSeed) {
-              _didAutoSeed = true;
-              WidgetsBinding.instance.addPostFrameCallback((_) {
-                _sensorService.seedMockVisits(_activeDeviceId);
-              });
             }
 
             // Compute live dashboard metrics from RTDB visits

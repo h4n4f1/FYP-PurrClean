@@ -141,39 +141,31 @@ class _DeviceSetupScreenState extends State<DeviceSetupScreen> {
     final status = DeviceStatusService.instance;
 
     _showBusy('Telling your PurrClean to forget its old Wi-Fi…\n'
-        'This can take up to 40 seconds.');
+        'This can take a few moments.');
 
     final sent = await status.requestWifiReset(saved);
     if (!mounted) return;
     if (!sent) {
-      _showError(
-        'Couldn\'t reach PurrClean\'s cloud. Check your phone\'s internet '
-        'connection and try again.\n\n'
-        'If your old Wi-Fi is no longer available, just wait about 3 '
-        'minutes: your PurrClean opens setup mode by itself. Then tap '
-        '"Try again" below.',
-        _startSearch,
-      );
+      // Cloud unreachable or device offline -> go directly to Bluetooth search
+      _startSearch();
       return;
     }
 
-    final acked = await status.waitForWifiResetAck(saved);
+    final acked = await status.waitForWifiResetAck(
+      saved,
+      timeout: const Duration(seconds: 12),
+    );
     if (!mounted) return;
     if (!acked) {
       await status.cancelWifiReset(saved);
       if (!mounted) return;
-      _showError(
-        'Your PurrClean didn\'t answer. It is probably offline (for example '
-        'because the old Wi-Fi was turned off).\n\n'
-        'If its Wi-Fi changed, wait about 3 minutes: it opens setup mode by '
-        'itself when it can\'t find its Wi-Fi. Then tap "Try again". ',
-        _startSearch,
-      );
+      // Device is likely already offline and in Bluetooth setup mode
+      _startSearch();
       return;
     }
 
     _showBusy('Your PurrClean is restarting in setup mode…');
-    await Future<void>.delayed(const Duration(seconds: 6));
+    await Future<void>.delayed(const Duration(seconds: 4));
     if (!mounted) return;
     _startSearch();
   }
@@ -447,21 +439,23 @@ class _DeviceSetupScreenState extends State<DeviceSetupScreen> {
         ),
         const SizedBox(height: 12),
         const Text(
-          'Your PurrClean is already set up. To move it to another Wi-Fi '
-          'network (for example a new router):\n\n'
-          '1. Keep your phone close to the device.\n'
+          'Your PurrClean is ready to connect to a new Wi-Fi network:\n\n'
+          '1. Keep your phone close to your PurrClean.\n'
           '2. Turn on Bluetooth and Location on your phone.\n'
-          '3. Tap "Switch Wi-Fi" and follow the steps.\n\n'
-          'If the old Wi-Fi is already gone, wait about 3 minutes: your '
-          'PurrClean opens setup mode by itself. Then tap "My PurrClean is '
-          'already reset".',
+          '3. Connecting over Bluetooth will automatically overwrite and forget your old Wi-Fi.',
           style: TextStyle(fontSize: 15, color: AppColors.textDark, height: 1.4),
         ),
         const SizedBox(height: 24),
-        _primaryButton('Switch Wi-Fi', _switchWifi),
-        TextButton(
-          onPressed: _startSearch,
-          child: const Text('My PurrClean is already reset'),
+        _primaryButton('Search via Bluetooth', _startSearch),
+        const SizedBox(height: 10),
+        OutlinedButton(
+          onPressed: _switchWifi,
+          style: OutlinedButton.styleFrom(
+            minimumSize: const Size.fromHeight(48),
+            side: const BorderSide(color: AppColors.primary),
+            shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+          ),
+          child: const Text('Reset device via Cloud', style: TextStyle(color: AppColors.primary)),
         ),
         TextButton(onPressed: _showHelp, child: const Text('Need help?')),
         _skipButton(),

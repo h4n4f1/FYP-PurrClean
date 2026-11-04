@@ -172,6 +172,70 @@ class DeviceStatusService {
     }
   }
 
+  /// Resolves the active PurrClean device ID (e.g. "8426").
+  /// 1. Checks SharedPreferences for saved BLE device name.
+  /// 2. Checks RTDB for devices owned by the current user.
+  /// 3. Auto-discovers any active device from RTDB /devices (most recent lastSeen/events),
+  ///    saves it to SharedPreferences, and links ownership.
+  /// 4. Falls back to "8426" if offline or unresolved.
+  Future<String> resolveActiveDeviceId() async {
+    final service = DeviceProvisioningService.instance;
+    final saved = await service.savedDeviceName();
+    if (saved != null && saved.trim().isNotEmpty) {
+      return idFromName(saved);
+    }
+
+    final uid = FirebaseAuth.instance.currentUser?.uid;
+    if (uid != null && uid.isNotEmpty) {
+      final owned = await findDeviceForUser(uid);
+      if (owned != null && owned.trim().isNotEmpty) {
+        await service.markProvisioned(owned);
+        return idFromName(owned);
+      }
+    }
+
+    // Auto-discover active device from RTDB /devices
+    try {
+      final snapshot =
+          await _db.ref('devices').get().timeout(const Duration(seconds: 6));
+      final val = snapshot.value;
+      if (val is Map) {
+        String? bestDeviceId;
+        int maxLastSeen = 0;
+
+        val.forEach((key, data) {
+          if (data is Map) {
+            final id = key.toString();
+            final lastSeen = (data['lastSeen'] as num?)?.toInt() ?? 0;
+            final isProv = data['provisioned'] == true;
+            final hasEvents = data['events'] != null;
+
+            if (isProv || hasEvents || lastSeen > 0) {
+              if (lastSeen >= maxLastSeen) {
+                maxLastSeen = lastSeen;
+                bestDeviceId = id;
+              }
+            }
+          }
+        });
+
+        if (bestDeviceId != null && bestDeviceId!.isNotEmpty) {
+          final fullName =
+              '${DeviceProvisioningService.devicePrefix}_$bestDeviceId';
+          await service.markProvisioned(fullName);
+          if (uid != null && uid.isNotEmpty) {
+            await setOwner(fullName, uid);
+          }
+          return bestDeviceId!;
+        }
+      }
+    } catch (e) {
+      debugPrint('resolveActiveDeviceId auto-discovery failed: $e');
+    }
+
+    return '8426';
+  }
+
   // ---- provisioning status ---------------------------------------------
 
   /// Sets devices/<id>/provisioned. When the app marks a device as set up
@@ -280,10 +344,10 @@ class DeviceStatusService {
     }
 
     Future<void> start() async {
-      final name = await DeviceProvisioningService.instance.savedDeviceName();
-      if (name == null) {
-        if (!controller.isClosed) controller.add(DeviceLinkStatus.notSetUp);
-        return;
+      var name = await DeviceProvisioningService.instance.savedDeviceName();
+      if (name == null || name.trim().isEmpty) {
+        final autoId = await resolveActiveDeviceId();
+        name = '${DeviceProvisioningService.devicePrefix}_$autoId';
       }
       hasDevice = true;
 

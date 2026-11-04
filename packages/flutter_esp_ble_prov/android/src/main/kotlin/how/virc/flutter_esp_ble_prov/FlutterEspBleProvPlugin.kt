@@ -246,6 +246,7 @@ class BleScanManager(boss: Boss) : ActionManager(boss) {
   override fun call(ctx: CallContext) {
     boss.d("searchBleEspDevices: start")
     val prefix = ctx.arg("prefix") ?: return
+    boss.devices.clear()
     var replied = false
 
     fun replyError(message: String) {
@@ -266,7 +267,10 @@ class BleScanManager(boss: Boss) : ActionManager(boss) {
         override fun onPeripheralFound(device: BluetoothDevice?, scanResult: ScanResult?) {
           device ?: return
           scanResult ?: return
-          boss.devices.put(device.name, BleConnector(device, scanResult))
+          val name = scanResult.scanRecord?.deviceName ?: device.name ?: ""
+          if (name.isNotEmpty()) {
+            boss.devices.put(name, BleConnector(device, scanResult))
+          }
         }
 
         override fun scanCompleted() {

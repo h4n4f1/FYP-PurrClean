@@ -96,6 +96,13 @@ class _PostLoginGateState extends State<_PostLoginGate> {
         deviceDone = true;
       }
     }
+    if (!deviceDone) {
+      final autoId =
+          await DeviceStatusService.instance.resolveActiveDeviceId();
+      if (autoId.isNotEmpty) {
+        deviceDone = true;
+      }
+    }
     if (!deviceDone) deviceDone = await service.isSetupStepDone(widget.userId);
 
     var catDone = prefs.getBool(_catStepKey(widget.userId)) ?? false;

@@ -1,7 +1,6 @@
 import 'package:flutter/material.dart';
 import 'package:fl_chart/fl_chart.dart';
 import 'package:firebase_database/firebase_database.dart';
-import '../services/device_provisioning_service.dart';
 import '../services/device_status_service.dart';
 import '../services/sensor_service.dart';
 import '../theme/app_styles.dart';
@@ -30,7 +29,7 @@ class BehavioralInsight {
 class AnalyticsScreen extends StatefulWidget {
   final String deviceId;
 
-  const AnalyticsScreen({super.key, this.deviceId = "308C"});
+  const AnalyticsScreen({super.key, this.deviceId = "8426"});
 
   @override
   State<AnalyticsScreen> createState() => _AnalyticsScreenState();
@@ -42,78 +41,102 @@ class _AnalyticsScreenState extends State<AnalyticsScreen> {
   DwellUnit _dwellUnit = DwellUnit.minutes;
 
   late String _activeDeviceId = widget.deviceId;
-  Stream<DatabaseEvent>? _visitStream;
+  Stream<DatabaseEvent>? _visitStream; // devices/{id}/events
+  Stream<DatabaseEvent>? _summaryStream; // devices/{id}/daily_summary
   String? _streamDeviceId;
-  bool _isSeeding = false;
-  bool _didAutoSeed = false;
+  String? _backfilledDeviceId;
+  List<BehavioralInsight> _deriveInsights(List<VisitRecord> visits) {
+    if (visits.isEmpty) {
+      return const [
+        BehavioralInsight(
+          icon: Icons.info_outline,
+          iconColor: Colors.blue,
+          title: "Awaiting Live Box Activity",
+          severity: "low",
+          description:
+              "No elimination visits recorded for today. Live behavioral insights will appear once your cat uses the box.",
+        ),
+      ];
+    }
 
-  // Mock Insights
-  final List<BehavioralInsight> insights = const [
-    BehavioralInsight(
-      icon: Icons.trending_up,
-      iconColor: Colors.orange,
-      title: "Increased Morning & Evening Dwell Time",
-      severity: "medium",
-      description:
-          "Longer dwell times detected at 08:40 (3.58 min / 215s) and 20:05 (4.08 min / 245s).",
-    ),
-    BehavioralInsight(
-      icon: Icons.check_circle_outline,
-      iconColor: Colors.green,
-      title: "Normal Daytime Frequency",
-      severity: "low",
-      description:
-          "8 total visits recorded across the 24-hour cycle (00:00–23:59) within a healthy range.",
-    ),
-  ];
+    final List<BehavioralInsight> generated = [];
+    final extended = visits.where((v) => v.durationMinutes >= 3.0).toList();
+    if (extended.isNotEmpty) {
+      generated.add(
+        BehavioralInsight(
+          icon: Icons.warning_amber_rounded,
+          iconColor: Colors.orange,
+          title: "Extended Dwell Events Detected",
+          severity: "medium",
+          description:
+              "${extended.length} visit(s) exceeded the 3-minute dwell threshold (e.g. at ${extended.first.timeLabel}).",
+        ),
+      );
+    }
+
+    final highGas = visits.where((v) => v.ammoniaPpm >= 30.0 || v.odorIndex >= 80.0).toList();
+    if (highGas.isNotEmpty) {
+      generated.add(
+        BehavioralInsight(
+          icon: Icons.air_rounded,
+          iconColor: Colors.deepOrange,
+          title: "Elevated Gas Readings",
+          severity: "medium",
+          description:
+              "Elevated ammonia or odor levels detected during ${highGas.length} event(s). Ventilation fan activated.",
+        ),
+      );
+    }
+
+    generated.add(
+      BehavioralInsight(
+        icon: Icons.check_circle_outline,
+        iconColor: Colors.green,
+        title: "Daily Elimination Frequency",
+        severity: "low",
+        description:
+            "${visits.length} total visit(s) recorded across today's monitoring window.",
+      ),
+    );
+
+    return generated;
+  }
 
   @override
   void initState() {
     super.initState();
     _ensureVisitStream();
-    _resolveDeviceAndEnsureMockData();
+    _resolveDevice();
   }
 
   void _ensureVisitStream() {
     if (_visitStream == null || _streamDeviceId != _activeDeviceId) {
       _streamDeviceId = _activeDeviceId;
-      _visitStream = _sensorService.getVisitStream(_activeDeviceId);
+      _visitStream = _sensorService.getEventStream(_activeDeviceId);
+      _summaryStream = _sensorService.getDailySummaryStream(_activeDeviceId);
+      _backfilledDeviceId = null;
     }
   }
 
-  Future<void> _resolveDeviceAndEnsureMockData() async {
-    final savedName = await DeviceProvisioningService.instance.savedDeviceName();
-    if (savedName != null && savedName.trim().isNotEmpty && mounted) {
-      final resolved = DeviceStatusService.idFromName(savedName);
-      if (resolved != _activeDeviceId) {
-        setState(() {
-          _activeDeviceId = resolved;
-          _ensureVisitStream();
-        });
-      }
-    }
+  /// Writes summaries for completed past days that have events but no
+  /// `daily_summary` node yet. Runs at most once per device per session.
+  void _maybeBackfillSummaries(
+    List<LitterEvent> events,
+    Map<String, DailySummary> summaries,
+  ) {
+    if (_backfilledDeviceId == _activeDeviceId || events.isEmpty) return;
+    _backfilledDeviceId = _activeDeviceId;
+    _sensorService.backfillMissingSummaries(_activeDeviceId, events, summaries);
   }
 
-  Future<void> _seedMockDatabase({bool showFeedback = true}) async {
-    if (_isSeeding) return;
-    setState(() => _isSeeding = true);
-    final ok = await _sensorService.seedMockVisits(_activeDeviceId);
-    if (_activeDeviceId != widget.deviceId) {
-      await _sensorService.seedMockVisits(widget.deviceId);
-    }
-    if (!mounted) return;
-    setState(() => _isSeeding = false);
-    if (showFeedback) {
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(
-          content: Text(
-            ok
-                ? 'Mock visit data synced to Firebase Realtime DB (devices/$_activeDeviceId/visits).'
-                : 'Failed to sync mock data. Check internet connection.',
-          ),
-          backgroundColor: ok ? Colors.green.shade700 : Colors.red.shade700,
-        ),
-      );
+  Future<void> _resolveDevice() async {
+    final resolved =
+        await DeviceStatusService.instance.resolveActiveDeviceId();
+    if (resolved != _activeDeviceId && mounted) {
+      setState(() {
+        _activeDeviceId = resolved;
+        _ensureVisitStream();
+      });
     }
   }
 
@@ -349,6 +372,77 @@ class _AnalyticsScreenState extends State<AnalyticsScreen> {
   int? _selectedHeatmapRow;
   int? _selectedHeatmapHour;
 
+  Widget _buildEmptyChartBox(String message) {
+    return Container(
+      height: 180,
+      alignment: Alignment.center,
+      decoration: BoxDecoration(
+        color: const Color(0xFFF9FAFB),
+        borderRadius: BorderRadius.circular(16),
+        border: Border.all(color: Colors.grey.shade200),
+      ),
+      child: Column(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          Icon(Icons.inbox_rounded, size: 36, color: Colors.grey.shade400),
+          const SizedBox(height: 8),
+          Text(
+            message,
+            style: TextStyle(
+              fontSize: 13,
+              fontWeight: FontWeight.w600,
+              color: Colors.grey.shade600,
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+
+  Widget _buildEmptyChartState({
+    required IconData icon,
+    required String title,
+    required String message,
+  }) {
+    return Container(
+      margin: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
+      padding: const EdgeInsets.all(28),
+      decoration: BoxDecoration(
+        color: Colors.white,
+        borderRadius: BorderRadius.circular(22),
+        boxShadow: AppDecorations.cardShadow,
+      ),
+      child: Column(
+        children: [
+          CircleAvatar(
+            radius: 28,
+            backgroundColor: AppColors.iconBgOrange,
+            child: Icon(icon, color: AppColors.primary, size: 28),
+          ),
+          const SizedBox(height: 14),
+          Text(
+            title,
+            style: const TextStyle(
+              fontSize: 16,
+              fontWeight: FontWeight.bold,
+              color: AppColors.textDark,
+            ),
+          ),
+          const SizedBox(height: 6),
+          Text(
+            message,
+            textAlign: TextAlign.center,
+            style: const TextStyle(
+              fontSize: 13,
+              color: Colors.black54,
+              height: 1.4,
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+
   /// Graph 1: Chronological Visit & Dwell Timeline (Combo Bar/Line Chart)
   /// X-axis: Hours of the day (00:00 to 23:59)
   /// Y-axis: Dwell time inside the box (Seconds/Minutes)
@@ -395,7 +489,7 @@ class _AnalyticsScreenState extends State<AnalyticsScreen> {
       if (trendSpots.isNotEmpty)
         LineChartBarData(
           spots: trendSpots,
-          isCurved: true,
+          isCurved: trendSpots.length > 1,
           preventCurveOverShooting: true,
           color: _kTrendOrange,
           barWidth: 2.5,
@@ -481,9 +575,12 @@ class _AnalyticsScreenState extends State<AnalyticsScreen> {
           const SizedBox(height: 18),
 
           // Combo Bar + Line Chart
-          SizedBox(
-            height: 225,
-            child: LineChart(
+          if (visits.isEmpty)
+            _buildEmptyChartBox("No visit data recorded for today")
+          else
+            SizedBox(
+              height: 225,
+              child: LineChart(
               LineChartData(
                 minX: 0,
                 maxX: 24,
@@ -648,7 +745,7 @@ class _AnalyticsScreenState extends State<AnalyticsScreen> {
                     tooltipBorderRadius: BorderRadius.circular(10),
                     getTooltipItems: (touchedSpots) {
                       return touchedSpots.map((barSpot) {
-                        if (barSpot.barIndex != trendLineIndex) {
+                        if (trendLineIndex < 0 || barSpot.barIndex != trendLineIndex) {
                           return null;
                         }
                         final spotIdx = barSpot.spotIndex;
@@ -831,9 +928,12 @@ class _AnalyticsScreenState extends State<AnalyticsScreen> {
           ),
           const SizedBox(height: 18),
 
-          SizedBox(
-            height: 225,
-            child: BarChart(
+          if (visits.isEmpty)
+            _buildEmptyChartBox("No gas readings recorded for today")
+          else
+            SizedBox(
+              height: 225,
+              child: BarChart(
               BarChartData(
                 maxY: maxOdorScale,
                 minY: 0,
@@ -1151,9 +1251,12 @@ class _AnalyticsScreenState extends State<AnalyticsScreen> {
           ),
           const SizedBox(height: 18),
 
-          SizedBox(
-            height: 225,
-            child: BarChart(
+          if (visits.isEmpty)
+            _buildEmptyChartBox("No deposit measurements recorded for today")
+          else
+            SizedBox(
+              height: 225,
+              child: BarChart(
               BarChartData(
                 maxY: maxGrams,
                 minY: 0,
@@ -2083,20 +2186,26 @@ class _AnalyticsScreenState extends State<AnalyticsScreen> {
   /// Graph 1: Daily Total Eliminations & Output Volume (Stacked Bar Chart)
   /// Graph 2: Visit Frequency vs. Straining Ratio (Grouped Bar + Line)
   /// Graph 3: Litter Degradation & Fan Purge Duration (Area / Step Line)
-  Widget _buildWeeklySection() {
-    return StreamBuilder<DatabaseEvent>(
-      stream: _sensorService.getWeeklyStream(_activeDeviceId),
-      builder: (context, weeklySnapshot) {
-        final List<WeeklyDayRecord> weeklyDays =
-            _sensorService.parseWeeklyRecords(weeklySnapshot.data?.snapshot);
-        return Column(
-          children: [
-            _buildWeeklyOutputStackedChartCard(weeklyDays),
-            _buildWeeklyFrequencyVsStrainingCard(weeklyDays),
-            _buildWeeklyFanPurgeStepChartCard(weeklyDays),
-          ],
-        );
-      },
+  Widget _buildWeeklySection(
+    List<LitterEvent> events,
+    Map<String, DailySummary> summaries,
+  ) {
+    final List<WeeklyDayRecord> weeklyDays =
+        _sensorService.buildWeeklyRecords(summaries, events);
+    if (weeklyDays.isEmpty) {
+      return _buildEmptyChartState(
+        icon: Icons.calendar_view_week_rounded,
+        title: 'No Weekly Data Recorded',
+        message:
+            'Weekly box patterns and hygiene metrics will appear once weekly history is recorded in your database.',
+      );
+    }
+    return Column(
+      children: [
+        _buildWeeklyOutputStackedChartCard(weeklyDays),
+        _buildWeeklyFrequencyVsStrainingCard(weeklyDays),
+        _buildWeeklyFanPurgeStepChartCard(weeklyDays),
+      ],
     );
   }
 
@@ -2444,7 +2553,7 @@ class _AnalyticsScreenState extends State<AnalyticsScreen> {
       if (trendSpots.isNotEmpty)
         LineChartBarData(
           spots: trendSpots,
-          isCurved: true,
+          isCurved: trendSpots.length > 1,
           preventCurveOverShooting: true,
           color: _kTrendOrange,
           barWidth: 2.5,
@@ -2726,7 +2835,7 @@ class _AnalyticsScreenState extends State<AnalyticsScreen> {
                     tooltipBorderRadius: BorderRadius.circular(10),
                     getTooltipItems: (touchedSpots) {
                       return touchedSpots.map((barSpot) {
-                        if (barSpot.barIndex != trendLineIndex) {
+                        if (trendLineIndex < 0 || barSpot.barIndex != trendLineIndex) {
                           return null;
                         }
                         final idx = barSpot.spotIndex;
@@ -3062,28 +3171,38 @@ class _AnalyticsScreenState extends State<AnalyticsScreen> {
   /// Graph 1: Feline Body Weight Trajectory (Smoothed Line Chart)
   /// Graph 2: 24-Hour Circadian Elimination Heatmap (Grid Matrix)
   /// Graph 3: Chronic Odor & Ammonia Baseline Trends (Dual-Trend Line)
-  Widget _buildMonthlySection() {
-    return StreamBuilder<DatabaseEvent>(
-      stream: _sensorService.getMonthlyStream(_activeDeviceId),
-      builder: (context, monthlySnapshot) {
-        final List<MonthlyDayRecord> monthlyDays =
-            _sensorService.parseMonthlyRecords(monthlySnapshot.data?.snapshot);
-        return Column(
-          children: [
-            _buildMonthlyWeightTrajectoryCard(monthlyDays),
-            _buildMonthlyCircadianHeatmapCard(monthlyDays),
-            _buildMonthlyGasBaselineTrendCard(monthlyDays),
-          ],
-        );
-      },
+  Widget _buildMonthlySection(
+    List<LitterEvent> events,
+    Map<String, DailySummary> summaries,
+  ) {
+    final List<MonthlyDayRecord> monthlyDays =
+        _sensorService.buildMonthlyRecords(summaries, events);
+    if (monthlyDays.isEmpty) {
+      return _buildEmptyChartState(
+        icon: Icons.calendar_month_rounded,
+        title: 'No Monthly Data Recorded',
+        message:
+            'Monthly health records and weight trajectory will appear once monthly history is recorded in your database.',
+      );
+    }
+    return Column(
+      children: [
+        _buildMonthlyWeightTrajectoryCard(monthlyDays),
+        _buildMonthlyCircadianHeatmapCard(monthlyDays),
+        _buildMonthlyGasBaselineTrendCard(monthlyDays),
+      ],
     );
   }
 
-  Widget _buildMonthlyWeightTrajectoryCard(List<MonthlyDayRecord> monthlyDays) {
+  Widget _buildMonthlyWeightTrajectoryCard(List<MonthlyDayRecord> allDays) {
     const double minWeightKg = 3.5;
     const double maxWeightKg = 4.5;
     const double weightIntervalKg = 0.2;
     const double vetAlertWeightKg = 3.9;
+
+    // Only days with a stable averageCatWeightKg reading are plotted.
+    final List<MonthlyDayRecord> monthlyDays =
+        allDays.where((d) => d.weightKg > 0).toList();
 
     final int lowWeightDays = monthlyDays
         .where((d) => d.weightKg <= vetAlertWeightKg)
@@ -3180,6 +3299,9 @@ class _AnalyticsScreenState extends State<AnalyticsScreen> {
           ),
           const SizedBox(height: 18),
 
+          if (monthlyDays.isEmpty)
+            _buildEmptyChartBox("No cat weight readings this month")
+          else
           SizedBox(
             height: 225,
             child: LineChart(
@@ -3382,7 +3504,7 @@ class _AnalyticsScreenState extends State<AnalyticsScreen> {
                   // Series 1: Smoothed 7-Day Moving Average Curve
                   LineChartBarData(
                     spots: movingAvgSpots,
-                    isCurved: true,
+                    isCurved: movingAvgSpots.length > 1,
                     preventCurveOverShooting: true,
                     color: _kTrendOrange,
                     barWidth: 2.8,
@@ -3435,7 +3557,7 @@ class _AnalyticsScreenState extends State<AnalyticsScreen> {
       final int rowIdx = ((dayRecord.dayOfMonth - 1) ~/ 5).clamp(0, 5);
       final List<int> hours = dayRecord.hourlyVisits.length == 24
           ? dayRecord.hourlyVisits
-          : SensorService.buildCircadianRowForDay(dayRecord.dayOfMonth);
+          : List<int>.filled(24, 0);
       for (int h = 0; h < 24; h++) {
         matrix[rowIdx][h] += hours[h];
       }
@@ -4135,7 +4257,7 @@ class _AnalyticsScreenState extends State<AnalyticsScreen> {
                   // Trend Line 0: Median Peak NH3 (ppm) — Purple safe, Orange danger dots
                   LineChartBarData(
                     spots: ammoniaSpots,
-                    isCurved: true,
+                    isCurved: ammoniaSpots.length > 1,
                     preventCurveOverShooting: true,
                     color: _kSafeAmmonia,
                     barWidth: 2.5,
@@ -4165,7 +4287,7 @@ class _AnalyticsScreenState extends State<AnalyticsScreen> {
                   // Trend Line 1: Median Odor Index (%) — Teal safe, Coral Red danger dots
                   LineChartBarData(
                     spots: odorSpots,
-                    isCurved: true,
+                    isCurved: odorSpots.length > 1,
                     preventCurveOverShooting: true,
                     color: _kSafeOdor,
                     barWidth: 2.5,
@@ -4211,23 +4333,6 @@ class _AnalyticsScreenState extends State<AnalyticsScreen> {
             title: 'Analytics',
             subtitle: 'Behavioral insights for your cat',
             icon: Icons.insights_rounded,
-            actions: [
-              HeaderActionButton(
-                tooltip: 'Seed Mock Data to Firebase RTDB',
-                icon: Icons.cloud_upload_outlined,
-                onPressed: _isSeeding ? null : () => _seedMockDatabase(),
-                child: _isSeeding
-                    ? const SizedBox(
-                        width: 18,
-                        height: 18,
-                        child: CircularProgressIndicator(
-                          color: Colors.white,
-                          strokeWidth: 2,
-                        ),
-                      )
-                    : null,
-              ),
-            ],
             bottom: _buildPeriodToggle(),
           ),
           Expanded(
@@ -4235,65 +4340,70 @@ class _AnalyticsScreenState extends State<AnalyticsScreen> {
         child: StreamBuilder<DatabaseEvent>(
           stream: _visitStream,
           builder: (context, snapshot) {
-            List<VisitRecord> visits = [];
+            return StreamBuilder<DatabaseEvent>(
+              stream: _summaryStream,
+              builder: (context, summarySnapshot) {
+                List<VisitRecord> visits = [];
+                List<LitterEvent> events = [];
 
-            if (snapshot.hasData && snapshot.data?.snapshot.value != null) {
-              visits = _sensorService.parseVisitRecords(snapshot.data!.snapshot);
-            } else if (snapshot.connectionState == ConnectionState.active &&
-                !_didAutoSeed) {
-              _didAutoSeed = true;
-              WidgetsBinding.instance.addPostFrameCallback((_) {
-                _seedMockDatabase(showFeedback: false);
-              });
-            }
+                if (snapshot.hasData && snapshot.data?.snapshot.value != null) {
+                  events = _sensorService.parseEvents(snapshot.data!.snapshot);
+                  visits = _sensorService.todayVisits(events);
+                }
 
-            // Compute live summary metrics from visits if available
-            final int totalVisits = visits.length;
-            final double avgMin = totalVisits > 0
-                ? visits.fold<double>(0, (sum, v) => sum + v.durationMinutes) /
-                    totalVisits
-                : 1.9;
-            final int avgSec = totalVisits > 0
-                ? (visits.fold<int>(0, (sum, v) => sum + v.durationSeconds) /
-                        totalVisits)
-                    .round()
-                : 114;
+                final summaries = _sensorService
+                    .parseDailySummaries(summarySnapshot.data?.snapshot);
+                if (summarySnapshot.hasData) {
+                  _maybeBackfillSummaries(events, summaries);
+                }
 
-            return Column(
-              children: [
-                const SizedBox(height: 10),
+                // Compute live summary metrics from visits if available
+                final int totalVisits = visits.length;
+                final double avgMin = totalVisits > 0
+                    ? visits.fold<double>(0, (sum, v) => sum + v.durationMinutes) /
+                        totalVisits
+                    : 0.0;
+                final int avgSec = totalVisits > 0
+                    ? (visits.fold<int>(0, (sum, v) => sum + v.durationSeconds) /
+                            totalVisits)
+                        .round()
+                    : 0;
 
-                // Show Daily, Weekly, or Monthly graphs based on selected period
-                if (_selectedPeriod == AnalyticsPeriod.daily)
-                  (snapshot.connectionState == ConnectionState.waiting &&
-                          !snapshot.hasData)
-                      ? Container(
-                          height: 220,
-                          margin: const EdgeInsets.symmetric(
-                            horizontal: 16,
-                            vertical: 8,
-                          ),
-                          decoration: BoxDecoration(
-                            color: Colors.white,
-                            borderRadius: BorderRadius.circular(20),
-                          ),
-                          child: const Center(
-                            child: CircularProgressIndicator(
-                              color: AppColors.primary,
-                            ),
-                          ),
-                        )
-                      : Column(
-                          children: [
-                            _buildComboDwellChartCard(visits),
-                            _buildGasFingerprintChartCard(visits),
-                            _buildDepositMassChartCard(visits),
-                          ],
-                        )
-                else if (_selectedPeriod == AnalyticsPeriod.weekly)
-                  _buildWeeklySection()
-                else
-                  _buildMonthlySection(),
+                return Column(
+                  children: [
+                    const SizedBox(height: 10),
+
+                    // Show Daily, Weekly, or Monthly graphs based on selected period
+                    if (_selectedPeriod == AnalyticsPeriod.daily)
+                      (snapshot.connectionState == ConnectionState.waiting &&
+                              !snapshot.hasData)
+                          ? Container(
+                              height: 220,
+                              margin: const EdgeInsets.symmetric(
+                                horizontal: 16,
+                                vertical: 8,
+                              ),
+                              decoration: BoxDecoration(
+                                color: Colors.white,
+                                borderRadius: BorderRadius.circular(20),
+                              ),
+                              child: const Center(
+                                child: CircularProgressIndicator(
+                                  color: AppColors.primary,
+                                ),
+                              ),
+                            )
+                          : Column(
+                              children: [
+                                _buildComboDwellChartCard(visits),
+                                _buildGasFingerprintChartCard(visits),
+                                _buildDepositMassChartCard(visits),
+                              ],
+                            )
+                    else if (_selectedPeriod == AnalyticsPeriod.weekly)
+                      _buildWeeklySection(events, summaries)
+                    else
+                      _buildMonthlySection(events, summaries),
 
                 // Behavioral Insights Section
                 Container(
@@ -4327,7 +4437,7 @@ class _AnalyticsScreenState extends State<AnalyticsScreen> {
                         ],
                       ),
                       const SizedBox(height: 14),
-                      ...insights.map(
+                      ..._deriveInsights(visits).map(
                         (insight) => Padding(
                           padding: const EdgeInsets.symmetric(vertical: 7.0),
                           child: Row(
@@ -4485,11 +4595,13 @@ class _AnalyticsScreenState extends State<AnalyticsScreen> {
               ],
             );
           },
-        ),
+        );
+      },
+    ),
+  ),
       ),
-          ),
-        ],
-      ),
-    );
+    ],
+  ),
+);
   }
 }
