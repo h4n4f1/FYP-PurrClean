@@ -302,10 +302,16 @@ class WifiScanManager(boss: Boss) : ActionManager(boss) {
     boss.d("esp connect: start")
     boss.connect(conn, proofOfPossession) { esp ->
       boss.d("scanNetworks: start")
+      boss.networks.clear()
       esp.scanNetworks(object : WiFiScanListener {
         override fun onWifiListReceived(wifiList: ArrayList<WiFiAccessPoint>?) {
-          wifiList ?: return
-          wifiList.forEach { boss.networks.add(it.wifiName) }
+          if (wifiList != null) {
+            wifiList.forEach { 
+              if (it.wifiName.isNotBlank()) {
+                boss.networks.add(it.wifiName)
+              }
+            }
+          }
           boss.d("scanNetworks: complete ${boss.networks}")
           Handler(Looper.getMainLooper()).post {
             ctx.result.success(ArrayList<String>(boss.networks))
