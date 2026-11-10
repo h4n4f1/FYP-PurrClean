@@ -545,11 +545,48 @@ class _DeviceSetupScreenState extends State<DeviceSetupScreen> {
               ),
             ),
           ),
-          TextButton(
-            onPressed: () => setState(() => _enterManually = true),
-            child: const Text('My network isn\'t listed'),
+          Row(
+            mainAxisAlignment: MainAxisAlignment.spaceBetween,
+            children: [
+              TextButton(
+                onPressed: () => setState(() => _enterManually = true),
+                child: const Text('My network isn\'t listed'),
+              ),
+              if (_device != null)
+                TextButton.icon(
+                  onPressed: () => _selectDevice(_device!),
+                  icon: const Icon(Icons.refresh, size: 16),
+                  label: const Text('Rescan'),
+                ),
+            ],
           ),
         ] else ...[
+          if (_networks.isEmpty)
+            Container(
+              padding: const EdgeInsets.all(12),
+              margin: const EdgeInsets.only(bottom: 12),
+              decoration: BoxDecoration(
+                color: Colors.amber.withOpacity(0.12),
+                borderRadius: BorderRadius.circular(12),
+                border: Border.all(color: Colors.amber.shade300),
+              ),
+              child: Row(
+                children: [
+                  Icon(Icons.info_outline, color: Colors.amber.shade800, size: 20),
+                  const SizedBox(width: 8),
+                  Expanded(
+                    child: Text(
+                      'No 2.4 GHz Wi-Fi networks were detected automatically. You can enter your Wi-Fi name manually below, or tap Rescan.',
+                      style: TextStyle(
+                        fontSize: 12,
+                        color: Colors.amber.shade900,
+                        fontWeight: FontWeight.w500,
+                      ),
+                    ),
+                  ),
+                ],
+              ),
+            ),
           TextField(
             controller: _manualSsidController,
             decoration: AppDecorations.inputDecoration(
@@ -557,11 +594,24 @@ class _DeviceSetupScreenState extends State<DeviceSetupScreen> {
               icon: Icons.wifi,
             ),
           ),
-          if (_networks.isNotEmpty)
-            TextButton(
-              onPressed: () => setState(() => _enterManually = false),
-              child: const Text('Pick from the list instead'),
-            ),
+          Row(
+            mainAxisAlignment: MainAxisAlignment.spaceBetween,
+            children: [
+              if (_networks.isNotEmpty)
+                TextButton(
+                  onPressed: () => setState(() => _enterManually = false),
+                  child: const Text('Pick from the list instead'),
+                )
+              else
+                const SizedBox.shrink(),
+              if (_device != null)
+                TextButton.icon(
+                  onPressed: () => _selectDevice(_device!),
+                  icon: const Icon(Icons.refresh, size: 16),
+                  label: const Text('Rescan'),
+                ),
+            ],
+          ),
         ],
         const SizedBox(height: 12),
         TextField(
