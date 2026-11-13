@@ -1,6 +1,8 @@
 import 'package:flutter/material.dart';
 
 import '../services/auth_service.dart';
+import '../models/care_reminder.dart';
+import '../services/care_reminder_service.dart';
 import '../services/device_provisioning_service.dart';
 import '../services/device_status_service.dart';
 import '../services/local_profile_store.dart';
@@ -34,7 +36,12 @@ class _SettingsScreenState extends State<SettingsScreen> {
     ),
     _NotificationOption(
       'litter_cleaning',
-      'Litter Cleaning Reminder',
+      'Litter Box Cleaning Reminder',
+      'Remind to clean after several visits or a day',
+    ),
+    _NotificationOption(
+      'waste_disposal',
+      'Waste Disposal Reminder',
       'Alert when waste reaches 80%',
     ),
     _NotificationOption(
@@ -53,6 +60,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
   static const _switchOff = Color(0xFFD1D5DB);
 
   final _authService = FirebaseAuthService();
+  int _previewIndex = 0;
   final Map<String, bool> _prefs = Map.of(
     LocalProfileStore.notificationDefaults,
   );
@@ -80,6 +88,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
   Future<void> _toggle(String key, bool value) async {
     setState(() => _prefs[key] = value);
     await LocalProfileStore.saveNotificationPref(_uid, key, value);
+    await CareReminderService.instance.syncPrefs();
   }
 
   /// Hard-resets the ESP32 (same as holding BOOT for 5 s) and forgets it on
@@ -130,7 +139,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
           acked
               ? 'Device removed. It is back in setup mode.'
               : 'Device removed. It will reset itself as soon as it is '
-                    'back online.',
+                  'back online.',
         ),
       ),
     );
@@ -223,9 +232,25 @@ class _SettingsScreenState extends State<SettingsScreen> {
             if (i != _options.length - 1)
               Divider(height: 1, color: Colors.grey.shade200),
           ],
+          const SizedBox(height: 4),
+          Align(
+            alignment: Alignment.centerRight,
+            child: TextButton.icon(
+              onPressed: _sendTestReminder,
+              icon: const Icon(Icons.notifications_active_outlined, size: 18),
+              label: const Text('Send test reminder'),
+            ),
+          ),
         ],
       ),
     );
+  }
+
+  /// Shows a sample popup (cycles through the three reminder types).
+  void _sendTestReminder() {
+    final task = CareTask.values[_previewIndex % CareTask.values.length];
+    _previewIndex++;
+    CareReminderService.instance.preview(task);
   }
 
   Widget _buildOptionRow(_NotificationOption option) {

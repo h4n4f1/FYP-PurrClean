@@ -13,6 +13,7 @@ class LocalProfileStore {
   static const Map<String, bool> notificationDefaults = {
     'health_anomaly': true,
     'litter_cleaning': true,
+    'waste_disposal': true,
     'litter_refill': true,
     'daily_summary': false,
   };

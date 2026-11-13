@@ -287,6 +287,7 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
                           airQualityStatusValue: liveAirQualityStatus,
                         ),
                         const SizedBox(height: 18),
+                        const SizedBox(height: 18),
                         _buildAirQualityMonitoringCard(
                           airQualityStatusValue: liveAirQualityStatus,
                           currentAmmoniaPpm: liveAmmoniaPpm,

@@ -11,6 +11,7 @@ import 'services/auth_service.dart';
 import 'services/device_provisioning_service.dart';
 import 'services/device_status_service.dart';
 import 'theme/app_styles.dart';
+import 'widgets/care_reminder_listener.dart';
 
 /// Decides which screen to show:
 ///   not logged in   -> AuthScreen (login / register)
@@ -159,7 +160,7 @@ class _PostLoginGateState extends State<_PostLoginGate> {
     }
 
     // Step 3: main menu.
-    return const MainShell();
+        return const CareReminderListener(child: MainShell());
   }
 }
 

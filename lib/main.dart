@@ -4,6 +4,7 @@ import 'package:firebase_messaging/firebase_messaging.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 
 import 'auth_wrapper.dart';
+import 'services/care_reminder_service.dart';
 import 'firebase_options.dart';
 
 Future<void> _initFirebase() async {
@@ -66,6 +67,12 @@ Future<void> _setupPushNotifications() async {
         debugPrint('Notification Title: ${notification.title}');
         debugPrint('Notification Body: ${notification.body}');
       }
+      // Also show it as an in-app popup (data: { "task": "clean" | "waste" | "refill" }).
+      CareReminderService.instance.showFromRemote(
+        data: message.data,
+        title: notification?.title,
+        body: notification?.body,
+      );
     });
   } else {
     debugPrint('User declined notification permission');
