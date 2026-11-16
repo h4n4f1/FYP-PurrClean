@@ -1,73 +1,36 @@
-/// The three litter-care jobs PurrClean reminds the owner about.
-enum CareTask {
-  /// Scoop / clean the litter box.
-  cleanBox('litter_cleaning', 1001),
+/// The two litter-box notifications PurrClean sends.
+enum LitterAlert {
+  /// The cat used the box and did their business.
+  catVisit('cat_visit', 'visit'),
 
-  /// Empty the waste drawer.
-  wasteDisposal('waste_disposal', 1002),
+  /// The box has not been cleaned for 2 weeks.
+  cleanOverdue('litter_cleaning', 'clean_overdue');
 
-  /// Top the litter up.
-  refillLitter('litter_refill', 1003);
-
-  const CareTask(this.prefKey, this.notificationId);
+  const LitterAlert(this.prefKey, this.type);
 
   /// Key used by Settings -> Notification Preferences (LocalProfileStore).
   final String prefKey;
 
-  /// Fixed id so a repeat reminder replaces the old system notification
-  /// instead of stacking.
-  final int notificationId;
+  /// Value of data['type'] in the push message sent by the Cloud Function.
+  final String type;
 }
 
-/// One reminder shown to the owner (as a popup or a system notification).
-class CareReminder {
-  const CareReminder({
-    required this.task,
-    required this.title,
-    required this.message,
-    this.urgent = false,
-    this.progress,
+/// How long ago the owner last cleaned the litter box.
+class CleaningStatus {
+  const CleaningStatus({
+    required this.lastCleaned,
+    required this.daysSinceClean,
+    required this.overdue,
   });
 
-  final CareTask task;
-  final String title;
-  final String message;
+  /// Days without cleaning before the reminder is sent.
+  /// The Cloud Function (litter_notifications.js) uses the same number.
+  static const int cleanAfterDays = 14;
 
-  /// Red styling + shorter re-notify gap.
-  final bool urgent;
+  final DateTime lastCleaned;
+  final int daysSinceClean;
+  final bool overdue;
 
-  /// Optional 0.0 - 1.0 bar (used for the waste drawer).
-  final double? progress;
-}
-
-/// Snapshot of how the litter box is doing. Shown on Home ("Litter Care")
-/// and used to decide which reminders are due.
-class CareStatus {
-  const CareStatus({
-    required this.wasteGrams,
-    required this.wastePct,
-    required this.visitsSinceClean,
-    required this.hoursSinceClean,
-    required this.highAmmonia,
-    required this.daysSinceRefill,
-    required this.lastClean,
-    required this.lastWasteEmptied,
-    required this.lastRefill,
-    required this.due,
-  });
-
-  final double wasteGrams;
-  final int wastePct; // 0 - 100
-  final int visitsSinceClean;
-  final int hoursSinceClean;
-  final bool highAmmonia;
-  final int daysSinceRefill;
-  final DateTime lastClean;
-  final DateTime lastWasteEmptied;
-  final DateTime lastRefill;
-
-  /// Tasks that are due right now.
-  final Set<CareTask> due;
-
-  bool isDue(CareTask task) => due.contains(task);
+  int get daysLeft =>
+      (cleanAfterDays - daysSinceClean).clamp(0, cleanAfterDays).toInt();
 }

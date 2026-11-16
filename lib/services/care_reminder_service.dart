@@ -13,38 +13,26 @@ import 'device_status_service.dart';
 import 'local_profile_store.dart';
 import 'sensor_service.dart';
 
-/// Numbers used by the Home "Litter Care" card.
-/// The Cloud Function (functions/index.js) has its own copy: keep them equal.
-class CareThresholds {
-  CareThresholds._();
-
-  static const double wasteCapacityGrams = 500;
-  static const int wasteWarnPct = 80;
-  static const int cleanAfterVisits = 6;
-  static const int cleanAfterHours = 24;
-  static const double ammoniaCleanPpm = 30;
-  static const int refillEveryDays = 7;
-  static const Duration recheckEvery = Duration(minutes: 15);
-}
-
-/// Litter-care reminders as SYSTEM notifications.
+/// Litter box notifications:
+///  1. every time the cat visits the box and does their business
+///  2. the box has not been cleaned for 2 weeks
 ///
-///  * The Cloud Function decides when a reminder is due and sends a push, so
-///    it arrives even when the app is closed.
-///  * This class (a) registers the phone for those pushes, (b) keeps the
-///    "last cleaned / emptied / refilled" times in sync with the server,
-///    (c) shows pushes that arrive while the app is open as system
-///    notifications too, and (d) feeds the Home "Litter Care" card.
+/// The Cloud Function (functions/litter_notifications.js) sends both as push
+/// messages, so they arrive even when the app is closed. This class registers
+/// the phone for those pushes, remembers when the owner last cleaned the box
+/// (the "I cleaned it" button on Home) and shows pushes that arrive while the
+/// app is open.
 class CareReminderService {
   CareReminderService._();
   static final CareReminderService instance = CareReminderService._();
 
   static const _channelId = 'care_reminders';
-  static const _channelName = 'Litter care reminders';
+  static const _channelName = 'Litter box notifications';
   static const _channelDesc =
-      'Reminders to clean the litter box, empty waste and refill litter';
+      'Alerts for litter box visits and cleaning reminders';
+  static const _cleanNotificationId = 1002;
+  static const Duration _recheckEvery = Duration(minutes: 15);
 
-  late final SensorService _sensor = SensorService();
   final FlutterLocalNotificationsPlugin _local =
       FlutterLocalNotificationsPlugin();
 
@@ -53,21 +41,18 @@ class CareReminderService {
         databaseURL: SensorService.databaseUrl,
       );
 
-  /// Latest litter-care status (null until the first check finishes).
-  final ValueNotifier<CareStatus?> status = ValueNotifier<CareStatus?>(null);
+  /// Latest cleaning status (null until the first check finishes).
+  final ValueNotifier<CleaningStatus?> status =
+      ValueNotifier<CleaningStatus?>(null);
 
   SharedPreferences? _prefs;
   String? _uid;
   String? _deviceId;
+  String? _attachedId;
   String? _token;
-  StreamSubscription<DatabaseEvent>? _sub;
   StreamSubscription<String>? _tokenSub;
   Timer? _timer;
-  List<LitterEvent> _events = const [];
   bool _localReady = false;
-
-  bool _busy = false;
-  bool _rerun = false;
 
   // ------------------------------------------------------------ lifecycle
 
@@ -79,33 +64,30 @@ class CareReminderService {
 
     _prefs ??= await SharedPreferences.getInstance();
     await _initLocalNotifications();
-    await _seedBaselines();
+    await _seedBaseline();
     await _attachDevice();
     if (_uid != uid) return;
 
     _timer?.cancel();
-    _timer = Timer.periodic(CareThresholds.recheckEvery, (_) async {
+    _timer = Timer.periodic(_recheckEvery, (_) async {
       await _attachDevice();
-      await _evaluate();
+      _evaluate();
     });
-    await _evaluate();
+    _evaluate();
   }
 
   /// Sign-out / leaving the main screen: stop pushes for this phone.
   Future<void> stop() async {
     _timer?.cancel();
     _timer = null;
-    final sub = _sub;
     final tokenSub = _tokenSub;
     final deviceId = _deviceId;
     final token = _token;
-    _sub = null;
     _tokenSub = null;
     _uid = null;
     _deviceId = null;
+    _attachedId = null;
     _token = null;
-    _events = const [];
-    await sub?.cancel();
     await tokenSub?.cancel();
     if (deviceId != null && token != null) {
       try {
@@ -119,37 +101,31 @@ class CareReminderService {
     }
   }
 
-  Future<void> checkNow() => _evaluate();
+  Future<void> checkNow() async => _evaluate();
 
   // -------------------------------------------------------- owner actions
 
-  String _fieldFor(CareTask task) => switch (task) {
-        CareTask.cleanBox => 'last_clean',
-        CareTask.wasteDisposal => 'last_waste',
-        CareTask.refillLitter => 'last_refill',
-      };
-
-  /// The owner did the job: reset its counter here and on the server.
-  Future<void> markDone(CareTask task) async {
+  /// The owner tapped "I cleaned it": restart the 2-week timer here and on
+  /// the server, and clear any cleaning notification that is still showing.
+  Future<void> markCleaned() async {
     final prefs = _prefs;
     if (prefs == null) return;
-    final field = _fieldFor(task);
     final now = DateTime.now().millisecondsSinceEpoch;
-    await prefs.setInt(_k(field), now);
+    await prefs.setInt(_k('last_clean'), now);
 
     final id = _deviceId;
     if (id != null) {
       try {
         await _db.ref('devices/$id/care').update({
-          field: now,
-          'notified_${task.name}': null, // clears the "already reminded" mark
+          'last_clean': now,
+          'notified_clean': null, // lets the next 2-week reminder fire again
         }).timeout(const Duration(seconds: 8));
       } catch (e) {
-        debugPrint('markDone sync failed: $e');
+        debugPrint('markCleaned sync failed: $e');
       }
     }
-    await _cancelSystemNotification(task.notificationId);
-    await _evaluate();
+    await _cancelSystemNotification(_cleanNotificationId);
+    _evaluate();
   }
 
   /// Call after a notification switch in Settings changes.
@@ -160,13 +136,22 @@ class CareReminderService {
   }
 
   /// Settings -> "Send test reminder": a real system notification.
-  Future<void> preview(CareTask task) async {
-    final reminder = _reminderFor(task, status.value ?? _sampleStatus(task));
-    await _show(
-      id: task.notificationId,
-      title: reminder.title,
-      body: reminder.message,
-    );
+  Future<void> preview(LitterAlert alert) async {
+    switch (alert) {
+      case LitterAlert.catVisit:
+        await _show(
+          id: _visitNotificationId(),
+          title: 'Litter box visit',
+          body: 'Your cat just peed in the litter box.',
+        );
+      case LitterAlert.cleanOverdue:
+        await _show(
+          id: _cleanNotificationId,
+          title: 'Time to clean the litter box',
+          body: "The litter box hasn't been cleaned for 14 days. "
+              'Give it a good clean and tap "I cleaned it" in the app.',
+        );
+    }
   }
 
   /// A push arrived while the app is open (Android does not draw those
@@ -176,21 +161,18 @@ class CareReminderService {
     String? title,
     String? body,
   }) async {
-    final CareTask? task = switch ((data['task'] ?? data['type'])?.toString()) {
-      'clean' || 'cleanBox' || 'litter_cleaning' => CareTask.cleanBox,
-      'waste' || 'wasteDisposal' || 'waste_disposal' => CareTask.wasteDisposal,
-      'refill' || 'refillLitter' || 'litter_refill' => CareTask.refillLitter,
-      _ => null,
-    };
-    final raw = (data['task'] ?? data['type'])?.toString() ?? '';
-    final id = task?.notificationId ??
-        (2000 + raw.codeUnits.fold<int>(0, (a, b) => a + b) % 900);
+    final type = (data['type'] ?? data['task'])?.toString();
+    final isClean = type == LitterAlert.cleanOverdue.type;
     await _show(
-      id: id,
-      title: (title == null || title.isEmpty) ? 'Litter care reminder' : title,
+      // cleaning reminder replaces itself; every visit gets its own entry
+      id: isClean ? _cleanNotificationId : _visitNotificationId(),
+      title: (title == null || title.isEmpty) ? 'PurrClean' : title,
       body: body ?? '',
     );
   }
+
+  int _visitNotificationId() =>
+      (DateTime.now().millisecondsSinceEpoch ~/ 1000) % 2000000000;
 
   // ------------------------------------------------------- device & push
 
@@ -199,41 +181,32 @@ class CareReminderService {
     if (uid == null) return;
     final id = await DeviceStatusService.instance.resolveActiveDeviceId();
     if (_uid != uid) return;
-    if (id == _deviceId && _sub != null) return;
+    if (id == _attachedId) return;
 
     _deviceId = id;
-    await _sub?.cancel();
-    _sub = _sensor.getEventStream(id).listen(
-      (event) {
-        _events = _sensor.parseEvents(event.snapshot);
-        _evaluate();
-      },
-      onError: (Object e) => debugPrint('CareReminderService stream error: $e'),
-    );
-    await _syncCareState(id);
+    _attachedId = id;
+    await _syncCleanState(id);
     await _registerPush(id);
+    _evaluate();
   }
 
-  /// The server's "last cleaned / emptied / refilled" times win; anything the
-  /// server does not have yet is uploaded from this phone.
-  Future<void> _syncCareState(String id) async {
+  /// The server's "last cleaned" time wins; if the server has none yet, the
+  /// one from this phone is uploaded (the Cloud Function needs it).
+  Future<void> _syncCleanState(String id) async {
     final prefs = _prefs;
     if (prefs == null) return;
     try {
-      final ref = _db.ref('devices/$id/care');
+      final ref = _db.ref('devices/$id/care/last_clean');
       final snap = await ref.get().timeout(const Duration(seconds: 8));
-      final server = snap.value is Map ? snap.value as Map : const {};
-      for (final field in const ['last_clean', 'last_waste', 'last_refill']) {
-        final v = server[field];
-        if (v is num) {
-          await prefs.setInt(_k(field), v.toInt());
-        } else {
-          final local = prefs.getInt(_k(field));
-          if (local != null) await ref.child(field).set(local);
-        }
+      final v = snap.value;
+      if (v is num) {
+        await prefs.setInt(_k('last_clean'), v.toInt());
+      } else {
+        final local = prefs.getInt(_k('last_clean'));
+        if (local != null) await ref.set(local);
       }
     } catch (e) {
-      debugPrint('Syncing care state failed: $e');
+      debugPrint('Syncing clean state failed: $e');
     }
   }
 
@@ -255,20 +228,17 @@ class CareReminderService {
     final uid = _uid;
     if (uid == null) return;
     _token = token;
-    final clean =
-        await LocalProfileStore.loadNotificationPref(uid, CareTask.cleanBox.prefKey);
-    final waste = await LocalProfileStore.loadNotificationPref(
-        uid, CareTask.wasteDisposal.prefKey);
-    final refill = await LocalProfileStore.loadNotificationPref(
-        uid, CareTask.refillLitter.prefKey);
+    final visit = await LocalProfileStore.loadNotificationPref(
+        uid, LitterAlert.catVisit.prefKey);
+    final clean = await LocalProfileStore.loadNotificationPref(
+        uid, LitterAlert.cleanOverdue.prefKey);
     final health =
         await LocalProfileStore.loadNotificationPref(uid, 'health_anomaly');
     try {
       await _db.ref('devices/$deviceId/fcmTokens/$token').set({
         'uid': uid,
+        'visit': visit,
         'clean': clean,
-        'waste': waste,
-        'refill': refill,
         'health': health,
         'updatedAt': ServerValue.timestamp,
       }).timeout(const Duration(seconds: 8));
@@ -287,119 +257,15 @@ class CareReminderService {
 
   // ------------------------------------------------------ status (card)
 
-  Future<void> _evaluate() async {
-    if (_busy) {
-      _rerun = true;
-      return;
-    }
-    _busy = true;
-    try {
-      do {
-        _rerun = false;
-        _evaluateOnce();
-      } while (_rerun);
-    } catch (e) {
-      debugPrint('CareReminderService evaluate failed: $e');
-    } finally {
-      _busy = false;
-    }
-  }
-
-  void _evaluateOnce() {
+  void _evaluate() {
     if (_prefs == null || _uid == null) return;
     final now = DateTime.now();
     final lastClean = _readDate('last_clean') ?? now;
-    final lastWaste = _readDate('last_waste') ?? now;
-    final lastRefill = _readDate('last_refill') ?? now;
-
-    final sinceClean =
-        _events.where((e) => e.timestamp.isAfter(lastClean)).toList();
-    final wasteGrams = _events
-        .where((e) => e.timestamp.isAfter(lastWaste))
-        .fold<double>(0, (sum, e) => sum + e.depositMassGrams);
-
-    final int wastePct =
-        ((wasteGrams / CareThresholds.wasteCapacityGrams) * 100)
-            .round()
-            .clamp(0, 100)
-            .toInt();
-    final visits = sinceClean.length;
-    final hoursSinceClean = now.difference(lastClean).inHours;
-    final highAmmonia = sinceClean
-        .any((e) => e.peakAmmoniaPpm >= CareThresholds.ammoniaCleanPpm);
-    final daysSinceRefill = now.difference(lastRefill).inDays;
-
-    status.value = CareStatus(
-      wasteGrams: wasteGrams,
-      wastePct: wastePct,
-      visitsSinceClean: visits,
-      hoursSinceClean: hoursSinceClean,
-      highAmmonia: highAmmonia,
-      daysSinceRefill: daysSinceRefill,
-      lastClean: lastClean,
-      lastWasteEmptied: lastWaste,
-      lastRefill: lastRefill,
-      due: <CareTask>{
-        if (visits >= CareThresholds.cleanAfterVisits ||
-            highAmmonia ||
-            (visits > 0 && hoursSinceClean >= CareThresholds.cleanAfterHours))
-          CareTask.cleanBox,
-        if (wastePct >= CareThresholds.wasteWarnPct) CareTask.wasteDisposal,
-        if (daysSinceRefill >= CareThresholds.refillEveryDays)
-          CareTask.refillLitter,
-      },
-    );
-  }
-
-  // -------------------------------------------------------------- content
-
-  CareReminder _reminderFor(CareTask task, CareStatus s) {
-    switch (task) {
-      case CareTask.cleanBox:
-        return CareReminder(
-          task: task,
-          title: 'Clean the litter box',
-          message: s.highAmmonia
-              ? 'Ammonia is high in the litter box. A quick scoop will '
-                  'freshen it up.'
-              : 'Your cat has used the box ${s.visitsSinceClean} times since '
-                  'it was last cleaned. Time for a scoop!',
-        );
-      case CareTask.wasteDisposal:
-        final full = s.wastePct >= 100;
-        return CareReminder(
-          task: task,
-          title: full ? 'Waste drawer is full' : 'Waste drawer is almost full',
-          message: full
-              ? 'Empty the drawer now to keep the box clean and odor-free.'
-              : 'The drawer is about ${s.wastePct}% full. Please empty it '
-                  'into a sealed bag soon.',
-          urgent: full,
-        );
-      case CareTask.refillLitter:
-        return CareReminder(
-          task: task,
-          title: 'Refill the litter',
-          message: 'The litter was last topped up ${s.daysSinceRefill} days '
-              'ago. Add fresh litter so clumping and odor control keep '
-              'working.',
-        );
-    }
-  }
-
-  CareStatus _sampleStatus(CareTask task) {
-    final now = DateTime.now();
-    return CareStatus(
-      wasteGrams: 410,
-      wastePct: 82,
-      visitsSinceClean: 7,
-      hoursSinceClean: 20,
-      highAmmonia: false,
-      daysSinceRefill: 8,
-      lastClean: now,
-      lastWasteEmptied: now,
-      lastRefill: now,
-      due: {task},
+    final days = now.difference(lastClean).inDays;
+    status.value = CleaningStatus(
+      lastCleaned: lastClean,
+      daysSinceClean: days,
+      overdue: days >= CleaningStatus.cleanAfterDays,
     );
   }
 
@@ -412,20 +278,14 @@ class CareReminderService {
     return ms == null ? null : DateTime.fromMillisecondsSinceEpoch(ms);
   }
 
-  Future<void> _seedBaselines() async {
+  /// First run: start the 2-week timer from today.
+  Future<void> _seedBaseline() async {
     final prefs = _prefs;
     if (prefs == null) return;
-    final now = DateTime.now();
-    final midnight = DateTime(now.year, now.month, now.day);
-    Future<void> seed(String name, DateTime value) async {
-      if (prefs.getInt(_k(name)) == null) {
-        await prefs.setInt(_k(name), value.millisecondsSinceEpoch);
-      }
+    if (prefs.getInt(_k('last_clean')) == null) {
+      await prefs.setInt(
+          _k('last_clean'), DateTime.now().millisecondsSinceEpoch);
     }
-
-    await seed('last_clean', midnight);
-    await seed('last_waste', midnight);
-    await seed('last_refill', now);
   }
 
   // ------------------------------------------------- system notifications

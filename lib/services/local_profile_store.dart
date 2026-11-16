@@ -10,11 +10,10 @@ class LocalProfileStore {
   LocalProfileStore._();
 
   /// Notification preference keys and their default values.
-  static const Map<String, bool> notificationDefaults = {
+    static const Map<String, bool> notificationDefaults = {
     'health_anomaly': true,
+    'cat_visit': true,
     'litter_cleaning': true,
-    'waste_disposal': true,
-    'litter_refill': true,
     'daily_summary': false,
   };
 

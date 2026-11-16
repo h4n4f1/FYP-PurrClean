@@ -28,26 +28,21 @@ class SettingsScreen extends StatefulWidget {
 }
 
 class _SettingsScreenState extends State<SettingsScreen> {
-  static const _options = [
+    static const _options = [
     _NotificationOption(
       'health_anomaly',
       'Health Anomaly Alerts',
       'Get notified of unusual patterns',
     ),
     _NotificationOption(
+      'cat_visit',
+      'Litter Box Visit Alerts',
+      'Notify me every time my cat uses the litter box',
+    ),
+    _NotificationOption(
       'litter_cleaning',
-      'Litter Box Cleaning Reminder',
-      'Remind to clean after several visits or a day',
-    ),
-    _NotificationOption(
-      'waste_disposal',
-      'Waste Disposal Reminder',
-      'Alert when waste reaches 80%',
-    ),
-    _NotificationOption(
-      'litter_refill',
-      'Litter Refill Reminder',
-      'Remind to refill litter',
+      'Cleaning Reminder',
+      'Remind me if the litter box was not cleaned in 2 weeks',
     ),
     _NotificationOption(
       'daily_summary',
@@ -246,11 +241,11 @@ class _SettingsScreenState extends State<SettingsScreen> {
     );
   }
 
-  /// Shows a sample popup (cycles through the three reminder types).
+    /// Shows a sample notification (alternates between the two types).
   void _sendTestReminder() {
-    final task = CareTask.values[_previewIndex % CareTask.values.length];
+    final alert = LitterAlert.values[_previewIndex % LitterAlert.values.length];
     _previewIndex++;
-    CareReminderService.instance.preview(task);
+    CareReminderService.instance.preview(alert);
   }
 
   Widget _buildOptionRow(_NotificationOption option) {

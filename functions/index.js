@@ -1,15 +1,22 @@
 const { onValueCreated } = require("firebase-functions/v2/database");
 const { onSchedule } = require("firebase-functions/v2/scheduler");
 const admin = require("firebase-admin");
+
+// 1. Initialize admin FIRST before requiring local files that might also use it.
+// Wrap it in a check to prevent the "app already exists" error.
+if (!admin.apps.length) {
+  admin.initializeApp({
+    databaseURL:
+      "https://purrclean-124-default-rtdb.asia-southeast1.firebasedatabase.app",
+  });
+}
+
 const {
-  T, parseEvents, toMs, computeCareReminders, computeHealthAlerts,
+  parseEvents, computeHealthAlerts,
 } = require("./care");
 
-// Same URL as SensorService.databaseUrl in the app.
-admin.initializeApp({
-  databaseURL:
-    "https://purrclean-124-default-rtdb.asia-southeast1.firebasedatabase.app",
-});
+// 2. Export local modules
+Object.assign(exports, require("./litter_notifications"));
 
 const REGION = "asia-southeast1"; // must match the database region
 const DB_INSTANCE = "purrclean-124-default-rtdb";
@@ -47,22 +54,6 @@ async function pushToPhones(ctx, { key, title, body, urgent, prefKey }) {
     })
   );
   return true;
-}
-
-/** Litter care: clean box / waste drawer / refill. */
-async function sendCareReminders(ctx) {
-  for (const r of computeCareReminders(ctx.events, ctx.care, ctx.now)) {
-    const last = toMs(ctx.care[`notified_${r.task}`]);
-    const gap = r.urgent ? T.renotifyUrgentMs : T.renotifyMs;
-    if (last !== null && ctx.now - last < gap) continue;
-
-    const sent = await pushToPhones(ctx, {
-      key: r.task, title: r.title, body: r.body, urgent: r.urgent, prefKey: r.prefKey,
-    });
-    if (sent) {
-      await ctx.db.ref(`${ctx.base}/care/notified_${r.task}`).set(ctx.now);
-    }
-  }
 }
 
 /** Cat health: each alert is sent once per "sig" (what it is about). */
@@ -112,7 +103,6 @@ async function evaluateDevice(deviceId) {
     now: Date.now(),
   };
 
-  await sendCareReminders(ctx);
   await sendHealthAlerts(ctx);
 }
 
