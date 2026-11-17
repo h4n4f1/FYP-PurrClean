@@ -12,8 +12,6 @@ import '../widgets/dashboard_card.dart';
 import '../widgets/page_header.dart';
 import '../widgets/stat_card.dart';
 import 'cat_settings_screen.dart';
-import '../models/care_reminder.dart';
-import '../services/care_reminder_service.dart';
 
 class HealthAlert {
   final String message;
@@ -299,8 +297,6 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
                         ),
                         const SizedBox(height: 18),
                         _buildOdorControlCard(),
-                        const SizedBox(height: 18),
-                        _buildCleaningCard(),
                       ],
                     ),
                   ),
@@ -1207,100 +1203,6 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
           ),
         ),
       ],
-    );
-  }
-
-    // -- Litter box cleaning (owner taps the button after cleaning) -----------
-
-  String _lastCleanedText(int days) {
-    if (days <= 0) return 'Cleaned today';
-    if (days == 1) return 'Cleaned 1 day ago';
-    return 'Cleaned $days days ago';
-  }
-
-  Future<void> _onMarkCleaned() async {
-    await CareReminderService.instance.markCleaned();
-    if (!mounted) return;
-    ScaffoldMessenger.of(context).showSnackBar(
-      const SnackBar(content: Text('Litter box marked as cleaned. Thank you!')),
-    );
-  }
-
-  Widget _buildCleaningCard() {
-    return ValueListenableBuilder<CleaningStatus?>(
-      valueListenable: CareReminderService.instance.status,
-      builder: (context, s, _) {
-        return DashboardCard(
-          child: Column(
-            crossAxisAlignment: CrossAxisAlignment.start,
-            children: [
-              const CardHeader(
-                icon: Icons.cleaning_services_rounded,
-                iconBg: AppColors.iconBgOrange,
-                iconColor: AppColors.primary,
-                title: 'Litter Box Cleaning',
-              ),
-              const SizedBox(height: 20),
-              Row(
-                children: [
-                  Expanded(
-                    child: Column(
-                      crossAxisAlignment: CrossAxisAlignment.start,
-                      children: [
-                        const Text('Last cleaned',
-                            style: AppTextStyles.cardTitle),
-                        const SizedBox(height: 2),
-                        Text(
-                          s == null
-                              ? 'Checking…'
-                              : _lastCleanedText(s.daysSinceClean),
-                          style: TextStyle(color: Colors.grey.shade600),
-                        ),
-                      ],
-                    ),
-                  ),
-                  if (s != null)
-                    StatusPill(
-                      label: s.overdue
-                          ? 'Overdue'
-                          : 'Next reminder in ${s.daysLeft}d',
-                      background: s.overdue
-                          ? const Color(0xFFFDE2E2)
-                          : AppColors.iconBgBlue,
-                      textColor: s.overdue
-                          ? const Color(0xFFB91C1C)
-                          : AppColors.infoBlue,
-                    ),
-                ],
-              ),
-              const SizedBox(height: 16),
-              GestureDetector(
-                onTap: s == null ? null : _onMarkCleaned,
-                child: Container(
-                  width: double.infinity,
-                  height: 52,
-                  alignment: Alignment.center,
-                  decoration: BoxDecoration(
-                    gradient: AppColors.startGradient,
-                    borderRadius: BorderRadius.circular(16),
-                    boxShadow: [
-                      BoxShadow(
-                        color: const Color(0xFF22C55E).withValues(alpha: 0.25),
-                        blurRadius: 10,
-                        offset: const Offset(0, 4),
-                      ),
-                    ],
-                  ),
-                  child: const Text(
-                    'I cleaned the litter box',
-                    style: AppTextStyles.buttonLabel,
-                  ),
-                ),
-              ),
-            ],
-          ),
-        );
-      },
     );
   }
 
